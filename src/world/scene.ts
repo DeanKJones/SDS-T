@@ -1,0 +1,245 @@
+import { Triangle } from "./geometry/triangle";
+import { Camera } from "./camera";
+import { Node } from "./bvh/node";
+import { quat, vec3 } from "gl-matrix";
+import { Object } from "./geometry/object";
+import { Deg2Rad } from "../math/deg2rad";
+
+interface SceneData {
+    triangles: Triangle[];
+    triangleCount: number;
+    triangleIndices: number[];
+
+    objects: Object[];
+    camera: Camera;
+    nodes: Node[];
+    nodesUsed: number;
+}
+
+export class Scene {
+    data: SceneData;
+
+    cameraForwardLabel: HTMLElement;
+    cameraUpLabel: HTMLElement;
+
+    constructor() {
+
+        const objectCount = 2
+
+        this.data = {
+            triangles: [],
+            triangleCount: 0,
+            triangleIndices: [],
+            objects: new Array(objectCount),
+            camera: new Camera([0.0, 0.0, 0.0], 0, 0),
+            nodes: [],
+            nodesUsed: 0
+        };
+
+        /* const colorRed: vec3 = [
+            1, 0, 0
+        ];
+        const colorBlue: vec3 = [
+            0, 0, 1
+        ]; */
+        const colorGrey: vec3 = [
+            0.9, 0.9, 0.9
+        ]
+
+        const cubeVerts = {
+            bottom_left_front:  [-2.5, 0.0, 2.5] as vec3,
+            bottom_left_back:   [-2.5, 0.0, -2.5] as vec3,
+            bottom_right_front: [2.5, 0.0, 2.5] as vec3,
+            bottom_right_back:  [2.5, 0.0, -2.5] as vec3,
+            top_left_front:     [-2.5, 5.0, 2.5] as vec3,
+            top_right_front:    [2.5, 5.0, 2.5] as vec3,
+            top_left_back:      [-2.5, 5.0, -2.5] as vec3,
+            top_right_back:     [2.5, 5.0, -2.5] as vec3,
+        };
+        
+
+        const t_floor_1 = new Triangle( cubeVerts.bottom_left_front, 
+                                        cubeVerts.bottom_left_back, 
+                                        cubeVerts.bottom_right_back, colorGrey);
+        const t_floor_2 = new Triangle( cubeVerts.bottom_left_front,  
+                                        cubeVerts.bottom_right_back,
+                                        cubeVerts.bottom_right_front, colorGrey);
+
+        const t_wall_back_1 = new Triangle( cubeVerts.bottom_left_back, 
+                                            cubeVerts.top_left_back, 
+                                            cubeVerts.top_right_back, colorGrey);
+        const t_wall_back_2 = new Triangle( cubeVerts.bottom_left_back, 
+                                            cubeVerts.top_right_back, 
+                                            cubeVerts.bottom_right_back, colorGrey);
+
+
+        this.data.triangles.push(t_floor_1);
+        this.data.triangles.push(t_floor_2);
+        this.data.triangles.push(t_wall_back_1);
+        this.data.triangles.push(t_wall_back_2);
+
+        this.data.triangleCount = this.data.triangles.length;
+        this.data.camera = new Camera([0, 3.0, 10.0], 180, 0);
+
+        // Get the HTML elements for displaying camera directions
+        this.cameraForwardLabel = document.getElementById('camera-forward') as HTMLElement;
+        this.cameraUpLabel = document.getElementById('camera-up') as HTMLElement;
+
+        console.log("Starting BVH build...");
+        this.buildBVH();
+        console.log("BVH build completed.");
+    }
+
+    update() {
+
+        this.data.triangles.forEach(
+            (triangle) => triangle.update()
+        );
+
+        this.data.camera.update();
+    }
+
+    buildBVH() {
+        const allTriangles = this.data.triangles;
+        //this.data.triangleCount = allTriangles.length;
+        this.data.triangleIndices = Array.from({ length: this.data.triangleCount }, (_, i) => i);
+
+        this.data.nodes = new Array(2 * this.data.triangleCount - 1);
+        for (let i = 0; i < 2 * this.data.triangleCount - 1; i++) {
+            this.data.nodes[i] = new Node();
+        }
+
+        const root: Node = this.data.nodes[0];
+        root.leftChild = 0;
+        root.primitiveCount = this.data.triangleCount;
+        this.data.nodesUsed += 1;
+
+        this.updateBounds(0, allTriangles, this.data.triangleIndices);
+        this.subdivide(0, allTriangles, this.data.triangleIndices);
+    }
+
+    updateBounds(nodeIndex: number, triangles: Triangle[], triangleIndices: number[]) {
+        const node: Node = this.data.nodes[nodeIndex];
+        node.minCorner = [999999, 999999, 999999];
+        node.maxCorner = [-999999, -999999, -999999];
+
+        for (let i = 0; i < node.primitiveCount; i++) {
+            const triangle: Triangle = triangles[triangleIndices[node.leftChild + i]];
+
+            triangle.vertices.forEach((corner: vec3) => {
+                vec3.min(node.minCorner, node.minCorner, corner);
+                vec3.max(node.maxCorner, node.maxCorner, corner);
+            });
+        }
+    }
+
+    subdivide(nodeIndex: number, triangles: Triangle[], triangleIndices: number[]) {
+        const node: Node = this.data.nodes[nodeIndex];
+
+        if (node.primitiveCount <= 2) {
+            return;
+        }
+
+        const extent: vec3 = vec3.subtract(vec3.create(), node.maxCorner, node.minCorner);
+        let axis = 0;
+        if (extent[1] > extent[axis]) {
+            axis = 1;
+        }
+        if (extent[2] > extent[axis]) {
+            axis = 2;
+        }
+
+        const splitPosition = node.minCorner[axis] + extent[axis] / 2;
+
+        let i = node.leftChild;
+        let j = i + node.primitiveCount - 1;
+
+        while (i <= j) {
+            if (triangles[triangleIndices[i]].get_centroid()[axis] < splitPosition) {
+                i += 1;
+            } else {
+                const temp = triangleIndices[i];
+                triangleIndices[i] = triangleIndices[j];
+                triangleIndices[j] = temp;
+                j -= 1;
+            }
+        }
+
+        const leftCount = i - node.leftChild;
+        if (leftCount === 0 || leftCount === node.primitiveCount) {
+            return;
+        }
+
+        const leftChildIndex = this.data.nodesUsed;
+        this.data.nodesUsed += 1;
+        const rightChildIndex = this.data.nodesUsed;
+        this.data.nodesUsed += 1;
+
+        this.data.nodes[leftChildIndex].leftChild = node.leftChild;
+        this.data.nodes[leftChildIndex].primitiveCount = leftCount;
+
+        this.data.nodes[rightChildIndex].leftChild = i;
+        this.data.nodes[rightChildIndex].primitiveCount = node.primitiveCount - leftCount;
+
+        node.leftChild = leftChildIndex;
+        node.primitiveCount = 0;
+
+        this.updateBounds(leftChildIndex, triangles, triangleIndices);
+        this.updateBounds(rightChildIndex, triangles, triangleIndices);
+        this.subdivide(leftChildIndex, triangles, triangleIndices);
+        this.subdivide(rightChildIndex, triangles, triangleIndices);
+    }
+
+    get_scene_camera(): Camera {
+        return this.data.camera;
+    }
+
+    get_scene_triangles(): Triangle[] {
+        return this.data.triangles;
+    }
+
+    spin_scene_camera(dX: number, dY: number) {
+        // Create quaternions for the rotations
+        let qx = quat.create();
+        let qy = quat.create();
+    
+        // Rotate around the Y axis (yaw) for horizontal movement (dX)
+        quat.rotateY(qy, qy, Deg2Rad(-dX));
+    
+        // Rotate around the X axis (pitch) for vertical movement (dY)
+        quat.rotateX(qx, qx, Deg2Rad(-dY));
+    
+        // Combine the rotations
+        quat.multiply(this.data.camera.orientation, qy, this.data.camera.orientation);
+        quat.multiply(this.data.camera.orientation, qx, this.data.camera.orientation);
+    
+        // Normalize the quaternion to avoid drift
+        quat.normalize(this.data.camera.orientation, this.data.camera.orientation);
+    
+        // Update the camera direction display
+        this.updateCameraDirectionDisplay();
+    }
+
+    move_scene_camera(forwards_amount: number, right_amount: number) {
+        vec3.scaleAndAdd(
+            this.data.camera.position, this.data.camera.position, 
+            this.data.camera.forwards, forwards_amount
+        );
+
+        vec3.scaleAndAdd(
+            this.data.camera.position, this.data.camera.position, 
+            this.data.camera.right, right_amount
+        );
+
+        // Update the camera direction display
+        this.updateCameraDirectionDisplay();
+    }
+
+    updateCameraDirectionDisplay() {
+        const forwards = this.data.camera.forwards;
+        const up = this.data.camera.up;
+
+        this.cameraForwardLabel.innerText = `Camera Forward: (${forwards[0].toFixed(2)}, ${forwards[1].toFixed(2)}, ${forwards[2].toFixed(2)})`;
+        this.cameraUpLabel.innerText = `Camera Up: (${up[0].toFixed(2)}, ${up[1].toFixed(2)}, ${up[2].toFixed(2)})`;
+    }
+}
