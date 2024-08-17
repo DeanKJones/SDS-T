@@ -17,8 +17,6 @@ interface SceneData {
 
 export class Scene {
     data: SceneData;
-    viewMatrix: mat4;
-    projectionMatrix: mat4;
 
     cameraForwardLabel: HTMLElement;
     cameraUpLabel: HTMLElement;
@@ -26,9 +24,6 @@ export class Scene {
     constructor() {
 
         const objectCount = 2
-
-        this.viewMatrix = mat4.create();
-        this.projectionMatrix = mat4.create();
         this.data = {
             triangles: [],
             triangleCount: 0,
