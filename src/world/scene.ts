@@ -1,7 +1,7 @@
 import { Triangle } from "./geometry/triangle";
 import { Camera } from "./camera";
 import { Node } from "./bvh/node";
-import { vec3, mat4 } from "gl-matrix";
+import { vec3 } from "gl-matrix";
 import { Object } from "./geometry/object";
 
 interface SceneData {
