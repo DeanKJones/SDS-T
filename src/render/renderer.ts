@@ -1,7 +1,11 @@
 import raytracer_kernel from "../gpu/shaders/raytracer_kernel.wgsl"
+import bvh_debug_shader from "../gpu/shaders/bvh_debug_shader.wgsl";
 import screen_shader from "../gpu/shaders/screen_shader.wgsl"
+
 import { Scene } from "../world/scene";
+import { RenderPass } from "./render_pass";
 import { SceneBufferDescription } from "./geometry/sceneBufferDescription";
+import { prepareScene } from "./gfx_scene";
 
 export class Renderer {
 
@@ -17,7 +21,6 @@ export class Renderer {
     color_buffer!: GPUTexture;
     color_buffer_view!: GPUTextureView;
     sampler!: GPUSampler;
-    sceneParameters!: GPUBuffer;
     sceneBuffers!: SceneBufferDescription;
 
     // Pipeline objects
@@ -27,9 +30,14 @@ export class Renderer {
     screen_pipeline!: GPURenderPipeline
     screen_bind_group_layout!: GPUBindGroupLayout
     screen_bind_group!: GPUBindGroup
+    bvh_debug_pipeline!: GPURenderPipeline
+    bvh_debug_bind_group_layout!: GPUBindGroupLayout
+    bvh_debug_bind_group!: GPUBindGroup
 
     frametime!: number
     logged!: Boolean
+    currentRenderPass: RenderPass = RenderPass.Default;
+
 
     constructor(canvas: HTMLCanvasElement){
         this.canvas = canvas;
@@ -109,6 +117,7 @@ export class Renderer {
     async makeBindGroupLayouts() {
 
         this.ray_tracing_bind_group_layout = this.device.createBindGroupLayout({
+            label: "Ray Tracing Bind Group Layout",
             entries: [
                 {
                     binding: 0,
@@ -155,6 +164,7 @@ export class Renderer {
         });
 
         this.screen_bind_group_layout = this.device.createBindGroupLayout({
+            label: "Screen Bind Group Layout",
             entries: [
                 {
                     binding: 0,
@@ -170,6 +180,26 @@ export class Renderer {
 
         });
 
+        this.bvh_debug_bind_group_layout = this.device.createBindGroupLayout({
+            label: "BVH Debug Bind Group Layout",
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: {
+                        type: "read-only-storage",
+                        hasDynamicOffset: false
+                    }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.VERTEX,
+                    buffer: {
+                        type: "uniform",
+                    }
+                },
+            ]
+        });
     }
 
     async createAssets() {
@@ -196,14 +226,6 @@ export class Renderer {
             maxAnisotropy: 1
         };
         this.sampler = this.device.createSampler(samplerDescriptor);
-
-        const parameterBufferDescriptor: GPUBufferDescriptor = {
-            size: 64,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        };
-        this.sceneParameters = this.device.createBuffer(
-            parameterBufferDescriptor
-        );
     }
 
     async setupScene(scene: Scene) {
@@ -215,6 +237,7 @@ export class Renderer {
     async makeBindGroups() {
 
         this.ray_tracing_bind_group = this.device.createBindGroup({
+            label: "Ray Tracing Bind Group",
             layout: this.ray_tracing_bind_group_layout,
             entries: [
                 {
@@ -224,7 +247,7 @@ export class Renderer {
                 {
                     binding: 1,
                     resource: {
-                        buffer: this.sceneParameters,
+                        buffer: this.sceneBuffers.sceneParameters,
                     }
                 },
                 {
@@ -249,6 +272,7 @@ export class Renderer {
         });
 
         this.screen_bind_group = this.device.createBindGroup({
+            label: "Screen Bind Group",
             layout: this.screen_bind_group_layout,
             entries: [
                 {
@@ -262,6 +286,24 @@ export class Renderer {
             ]
         });
 
+        this.bvh_debug_bind_group = this.device.createBindGroup({
+            label: "BVH Debug Bind Group",
+            layout: this.bvh_debug_bind_group_layout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: {
+                        buffer: this.sceneBuffers.nodeBuffer,
+                    } 
+                },
+                {
+                    binding: 1,
+                    resource: {
+                        buffer: this.sceneBuffers.viewMatrixBuffer,
+                    }
+                }
+            ]
+        });
     }
 
     async makePipelines() {
@@ -273,6 +315,7 @@ export class Renderer {
         this.ray_tracing_pipeline = 
             this.device.createComputePipeline(
                 {
+                    label: "Ray Tracing Pipeline",
                     layout: ray_tracing_pipeline_layout,
             
                     compute: {
@@ -287,6 +330,7 @@ export class Renderer {
         });
 
         this.screen_pipeline = this.device.createRenderPipeline({
+            label: "Screen Pipeline",
             layout: screen_pipeline_layout,
             
             vertex: {
@@ -312,7 +356,38 @@ export class Renderer {
                 topology: "triangle-list"
             }
         });
+
         
+        const bvh_debug_pipeline_layout = this.device.createPipelineLayout({
+            bindGroupLayouts: [this.bvh_debug_bind_group_layout]
+        });
+        // Set the vertex and fragment shader 
+        const bvh_debug_shader_module = this.device.createShaderModule({
+            code: bvh_debug_shader,
+        });
+        this.bvh_debug_pipeline = this.device.createRenderPipeline({
+            label: "BVH Debug Pipeline",
+            layout: bvh_debug_pipeline_layout,
+            
+            vertex: {
+                module: bvh_debug_shader_module,
+                entryPoint: 'vertexMain',
+            },
+        
+            fragment: {
+                module: bvh_debug_shader_module,
+                entryPoint: 'fragmentMain',
+                targets: [
+                    {
+                        format: "bgra8unorm"
+                    }
+                ],
+            },
+        
+            primitive: {
+                topology: 'line-list',
+            },
+        });
     }
 
     createSceneBuffers(triangleCount: number, nodesUsed: number) {
@@ -330,7 +405,7 @@ export class Renderer {
         }
         const maxBounces: number = 4;
         this.device.queue.writeBuffer(
-            this.sceneParameters, 0,
+            this.sceneBuffers.sceneParameters, 0,
             new Float32Array(
                 [
                     sceneData.cameraPos[0],
@@ -352,6 +427,10 @@ export class Renderer {
                 ]
             ), 0, 16
         )
+
+        const aspectRatio: number = this.canvas.width / this.canvas.height;
+        const viewMatrixData = new Float32Array(scene.data.camera.calculateProjectionMatrix(aspectRatio, 45, 0.1, 1000));
+        this.device.queue.writeBuffer(this.sceneBuffers.viewMatrixBuffer, 0, viewMatrixData, 0, 16);
 
         const triangleData: Float32Array = new Float32Array(16 * scene.data.triangleCount);
         for (let i = 0; i < scene.data.triangleCount; i++) {
@@ -389,15 +468,30 @@ export class Renderer {
         this.device.queue.writeBuffer(this.sceneBuffers.nodeBuffer, 0, nodeData, 0, 8 * scene.data.nodesUsed);
         this.device.queue.writeBuffer(this.sceneBuffers.triangleIndexBuffer, 0, triangleIndexData, 0, scene.data.triangleCount);
     }
-
-    render = (scene: Scene) => {
+    
+    render(scene: Scene) {
         if (!this.sceneBuffers) {
             this.createSceneBuffers(scene.data.triangleCount, scene.data.nodesUsed);
         }
+        const gfx_scene_instance = {
+            scene: scene,
+            sceneBuffers: this.sceneBuffers,
+            renderInstance: this
+        }
+        prepareScene(gfx_scene_instance);
 
+        switch (this.currentRenderPass) {
+            case RenderPass.Default:
+                this.renderDefault(gfx_scene_instance.scene.data.triangleCount);
+                break;
+            case RenderPass.BVHDebug:
+                this.renderBVHDebug(gfx_scene_instance.scene.data.nodes.length);
+                break;
+        }
+    }
+
+    renderDefault = (vertexCount: number) => {
         let start: number = performance.now();
-
-        this.prepareScene(scene);
 
         const commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
 
@@ -422,7 +516,7 @@ export class Renderer {
 
         renderpass.setPipeline(this.screen_pipeline);
         renderpass.setBindGroup(0, this.screen_bind_group);
-        renderpass.draw(3 * scene.data.triangleCount, 1, 0, 0);
+        renderpass.draw(3 * vertexCount, 1, 0, 0);
         
         renderpass.end();
     
@@ -439,4 +533,38 @@ export class Renderer {
             }
         );
     }   
+
+    renderBVHDebug = (bvhNodeCount: number) => {
+
+        let start: number = performance.now();
+
+        const commandEncoder = this.device.createCommandEncoder();
+        const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
+        const passEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: textureView,
+                loadOp: 'clear',
+                storeOp: 'store',
+                clearValue: { r: 0.2, g: 0.2, b: 0.2, a: 1 },
+            }],
+        });
+
+        passEncoder.setPipeline(this.bvh_debug_pipeline);
+        passEncoder.setBindGroup(0, this.bvh_debug_bind_group);
+        passEncoder.draw(12 * bvhNodeCount, 1, 0, 0);
+        passEncoder.end();
+
+        this.device.queue.submit([commandEncoder.finish()]);
+
+        this.device.queue.onSubmittedWorkDone().then(
+            () => {
+                let end: number = performance.now();
+                this.frametime = end - start;
+                let performanceLabel: HTMLElement =  <HTMLElement> document.getElementById("render-time");
+                if (performanceLabel) {
+                    performanceLabel.innerText = this.frametime.toString();
+                }
+            }
+        );
+    }
 }
