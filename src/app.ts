@@ -16,6 +16,7 @@ export class App {
 
     forwards_amount: number;
     right_amount: number;
+    up_amount: number;
     
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -35,6 +36,7 @@ export class App {
 
         this.forwards_amount = 0;
         this.right_amount = 0;
+        this.up_amount = 0;
         $(document).on(
             "keydown", 
             (event) => {
@@ -62,7 +64,11 @@ export class App {
         var running: boolean = true;
 
         this.scene.update();
-        this.scene.move_scene_camera(this.forwards_amount, this.right_amount);
+        for (let i = 0; i < 3; i++) {
+            if (i == 0) this.scene.data.camera.move(i, this.right_amount);
+            if (i == 1) this.scene.data.camera.move(i, this.up_amount);
+            if (i == 2) this.scene.data.camera.move(i, this.forwards_amount);
+        }
         this.updateCameraPosition();
 
         this.renderer.render(
@@ -89,7 +95,12 @@ export class App {
         if (event.code == "KeyD") {
             this.right_amount = 0.02;
         }
-
+        if (event.code == "KeyE") {
+            this.up_amount = 0.02;
+        }
+        if (event.code == "KeyQ") {
+            this.up_amount = -0.02;
+        }
     }
 
     handle_keyrelease(event: JQuery.KeyUpEvent) {
@@ -107,6 +118,12 @@ export class App {
         if (event.code == "KeyD") {
             this.right_amount = 0;
         }
+        if (event.code == "KeyE") {
+            this.up_amount = 0;
+        }
+        if (event.code == "KeyQ") {
+            this.up_amount = 0;
+        }
 
     }
 
@@ -114,7 +131,7 @@ export class App {
         this.mouseXLabel.innerText = event.clientX.toString();
         this.mouseYLabel.innerText = event.clientY.toString();
         
-        this.scene.spin_scene_camera(
+        this.scene.data.camera.rotate(
             event.movementX / 5, event.movementY / 5
         );
     }
