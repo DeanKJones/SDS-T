@@ -1,9 +1,8 @@
 import { Triangle } from "./geometry/triangle";
 import { Camera } from "./camera";
 import { Node } from "./bvh/node";
-import { quat, vec3 } from "gl-matrix";
+import { vec3, mat4 } from "gl-matrix";
 import { Object } from "./geometry/object";
-import { Deg2Rad } from "../math/deg2rad";
 
 interface SceneData {
     triangles: Triangle[];
@@ -18,6 +17,8 @@ interface SceneData {
 
 export class Scene {
     data: SceneData;
+    viewMatrix: mat4;
+    projectionMatrix: mat4;
 
     cameraForwardLabel: HTMLElement;
     cameraUpLabel: HTMLElement;
@@ -26,6 +27,8 @@ export class Scene {
 
         const objectCount = 2
 
+        this.viewMatrix = mat4.create();
+        this.projectionMatrix = mat4.create();
         this.data = {
             triangles: [],
             triangleCount: 0,
@@ -96,7 +99,7 @@ export class Scene {
             (triangle) => triangle.update()
         );
 
-        this.data.camera.update();
+        this.data.camera.calculateViewMatrix();
     }
 
     buildBVH() {
@@ -190,56 +193,7 @@ export class Scene {
         this.subdivide(rightChildIndex, triangles, triangleIndices);
     }
 
-    get_scene_camera(): Camera {
-        return this.data.camera;
-    }
-
     get_scene_triangles(): Triangle[] {
         return this.data.triangles;
-    }
-
-    spin_scene_camera(dX: number, dY: number) {
-        // Create quaternions for the rotations
-        let qx = quat.create();
-        let qy = quat.create();
-    
-        // Rotate around the Y axis (yaw) for horizontal movement (dX)
-        quat.rotateY(qy, qy, Deg2Rad(-dX));
-    
-        // Rotate around the X axis (pitch) for vertical movement (dY)
-        quat.rotateX(qx, qx, Deg2Rad(-dY));
-    
-        // Combine the rotations
-        quat.multiply(this.data.camera.orientation, qy, this.data.camera.orientation);
-        quat.multiply(this.data.camera.orientation, qx, this.data.camera.orientation);
-    
-        // Normalize the quaternion to avoid drift
-        quat.normalize(this.data.camera.orientation, this.data.camera.orientation);
-    
-        // Update the camera direction display
-        this.updateCameraDirectionDisplay();
-    }
-
-    move_scene_camera(forwards_amount: number, right_amount: number) {
-        vec3.scaleAndAdd(
-            this.data.camera.position, this.data.camera.position, 
-            this.data.camera.forwards, forwards_amount
-        );
-
-        vec3.scaleAndAdd(
-            this.data.camera.position, this.data.camera.position, 
-            this.data.camera.right, right_amount
-        );
-
-        // Update the camera direction display
-        this.updateCameraDirectionDisplay();
-    }
-
-    updateCameraDirectionDisplay() {
-        const forwards = this.data.camera.forwards;
-        const up = this.data.camera.up;
-
-        this.cameraForwardLabel.innerText = `Camera Forward: (${forwards[0].toFixed(2)}, ${forwards[1].toFixed(2)}, ${forwards[2].toFixed(2)})`;
-        this.cameraUpLabel.innerText = `Camera Up: (${up[0].toFixed(2)}, ${up[1].toFixed(2)}, ${up[2].toFixed(2)})`;
     }
 }
