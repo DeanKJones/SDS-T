@@ -1,5 +1,5 @@
 import { vec3, mat4 } from "gl-matrix";
-import { Deg2Rad } from "../../math/deg2rad";
+import { Deg2Rad } from "../../math/deg_to_rad";
 
 export class Triangle {
 
