@@ -12,6 +12,7 @@ export function prepareScene(gfx_scene_instance: gfx_scene_instance)
 
     switch (renderInstance.currentRenderPass)
     {
+// Switch Case for Default
         case RenderPass.Default:
             const sceneData = {
                 cameraPos: scene.data.camera.position,
@@ -83,7 +84,7 @@ export function prepareScene(gfx_scene_instance: gfx_scene_instance)
             device.queue.writeBuffer(sceneBuffers.triangleIndexBuffer, 0, triangleIndexData, 0, scene.data.triangleCount);   
 
             break;  
-
+// Switch Case for BVHDebug
         case RenderPass.BVHDebug:
 
             const aspectRatio: number = canvas.width / canvas.height;

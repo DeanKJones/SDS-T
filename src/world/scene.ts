@@ -2,37 +2,14 @@ import { Triangle } from "./geometry/triangle";
 import { Camera } from "./camera";
 import { Node } from "./bvh/node";
 import { vec3 } from "gl-matrix";
-import { Object } from "./geometry/object";
-
-interface SceneData {
-    triangles: Triangle[];
-    triangleCount: number;
-    triangleIndices: number[];
-
-    objects: Object[];
-    camera: Camera;
-    nodes: Node[];
-    nodesUsed: number;
-}
+import { SceneData } from "./management/scene_data";
 
 export class Scene {
     data: SceneData;
 
-    cameraForwardLabel: HTMLElement;
-    cameraUpLabel: HTMLElement;
-
     constructor() {
 
-        const objectCount = 2
-        this.data = {
-            triangles: [],
-            triangleCount: 0,
-            triangleIndices: [],
-            objects: new Array(objectCount),
-            camera: new Camera([0.0, 0.0, 0.0], 0, 0),
-            nodes: [],
-            nodesUsed: 0
-        };
+        this.data = new SceneData();
 
         /* const colorRed: vec3 = [
             1, 0, 0
@@ -78,10 +55,6 @@ export class Scene {
 
         this.data.triangleCount = this.data.triangles.length;
         this.data.camera = new Camera([0, 3.0, 10.0], 180, 0);
-
-        // Get the HTML elements for displaying camera directions
-        this.cameraForwardLabel = document.getElementById('camera-forward') as HTMLElement;
-        this.cameraUpLabel = document.getElementById('camera-up') as HTMLElement;
 
         console.log("Starting BVH build...");
         this.buildBVH();
