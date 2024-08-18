@@ -1,11 +1,10 @@
-import raytracer_kernel from "../gpu/shaders/raytracer_kernel.wgsl"
-import bvh_debug_shader from "../gpu/shaders/bvh_debug_shader.wgsl";
-import screen_shader from "../gpu/shaders/screen_shader.wgsl"
 
 import { Scene } from "../world/scene";
 import { RenderPass } from "./render_pass";
-import { SceneBufferDescription } from "./geometry/sceneBufferDescription";
+import { SceneBufferDescription } from "./buffers/geometry/sceneBufferDescription";
 import { prepareScene } from "./gfx_scene";
+import { Pipelines } from "./pipeline";
+import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
 
 export class Renderer {
 
@@ -18,21 +17,15 @@ export class Renderer {
     format!: GPUTextureFormat;
 
     //Assets
-    color_buffer!: GPUTexture;
-    color_buffer_view!: GPUTextureView;
-    sampler!: GPUSampler;
+    screenBuffers!: ScreenBufferDescription;
     sceneBuffers!: SceneBufferDescription;
 
     // Pipeline objects
-    ray_tracing_pipeline!: GPUComputePipeline
-    ray_tracing_bind_group_layout!: GPUBindGroupLayout
-    ray_tracing_bind_group!: GPUBindGroup
-    screen_pipeline!: GPURenderPipeline
-    screen_bind_group_layout!: GPUBindGroupLayout
-    screen_bind_group!: GPUBindGroup
-    bvh_debug_pipeline!: GPURenderPipeline
-    bvh_debug_bind_group_layout!: GPUBindGroupLayout
-    bvh_debug_bind_group!: GPUBindGroup
+    ray_tracing_bind_group!: GPUBindGroup;
+    screen_bind_group!: GPUBindGroup;
+    bvh_debug_bind_group!: GPUBindGroup;
+
+    renderPipeline!: Pipelines;
 
     frametime!: number
     logged!: Boolean
@@ -46,8 +39,9 @@ export class Renderer {
    async Initialize() {
 
         await this.setupDevice();
-        await this.makeBindGroupLayouts();
-        await this.createAssets();
+        this.renderPipeline = new Pipelines(this.device, this.currentRenderPass);
+        this.createScreenBuffers();
+        await this.renderPipeline.initialize();
 
         this.frametime = 16;
         this.logged = false;
@@ -114,135 +108,20 @@ export class Renderer {
         }
     }
 
-    async makeBindGroupLayouts() {
-
-        this.ray_tracing_bind_group_layout = this.device.createBindGroupLayout({
-            label: "Ray Tracing Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: {
-                        access: "write-only",
-                        format: "rgba8unorm",
-                        viewDimension: "2d"
-                    }
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: {
-                        type: "uniform",
-                    }
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: {
-                        type: "read-only-storage",
-                        hasDynamicOffset: false
-                    }
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: {
-                        type: "read-only-storage",
-                        hasDynamicOffset: false
-                    }
-                },
-                {
-                    binding: 4,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: {
-                        type: "read-only-storage",
-                        hasDynamicOffset: false
-                    }
-                },
-            ]
-
-        });
-
-        this.screen_bind_group_layout = this.device.createBindGroupLayout({
-            label: "Screen Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    sampler: {}
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    texture: {}
-                },
-            ]
-
-        });
-
-        this.bvh_debug_bind_group_layout = this.device.createBindGroupLayout({
-            label: "BVH Debug Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                    buffer: {
-                        type: "read-only-storage",
-                        hasDynamicOffset: false
-                    }
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.VERTEX,
-                    buffer: {
-                        type: "uniform",
-                    }
-                },
-            ]
-        });
-    }
-
-    async createAssets() {
-        
-        this.color_buffer = this.device.createTexture(
-            {
-                size: {
-                    width: this.canvas.width,
-                    height: this.canvas.height,
-                },
-                format: "rgba8unorm",
-                usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-            }
-        );
-
-        this.color_buffer_view = this.color_buffer.createView();
-
-        const samplerDescriptor: GPUSamplerDescriptor = {
-            addressModeU: "repeat",
-            addressModeV: "repeat",
-            magFilter: "linear",
-            minFilter: "nearest",
-            mipmapFilter: "nearest",
-            maxAnisotropy: 1
-        };
-        this.sampler = this.device.createSampler(samplerDescriptor);
-    }
-
     async setupScene(scene: Scene) {
         this.createSceneBuffers(scene.data.triangleCount, scene.data.nodesUsed);
         await this.makeBindGroups();
-        await this.makePipelines();
     }
 
     async makeBindGroups() {
 
         this.ray_tracing_bind_group = this.device.createBindGroup({
             label: "Ray Tracing Bind Group",
-            layout: this.ray_tracing_bind_group_layout,
+            layout: this.renderPipeline.bindGroupLayouts.ray_tracing_bind_group_layout,
             entries: [
                 {
                     binding: 0,
-                    resource: this.color_buffer_view
+                    resource: this.screenBuffers.color_buffer_view
                 },
                 {
                     binding: 1,
@@ -273,22 +152,22 @@ export class Renderer {
 
         this.screen_bind_group = this.device.createBindGroup({
             label: "Screen Bind Group",
-            layout: this.screen_bind_group_layout,
+            layout: this.renderPipeline.bindGroupLayouts.screen_bind_group_layout,
             entries: [
                 {
                     binding: 0,
-                    resource:  this.sampler
+                    resource:  this.screenBuffers.sampler
                 },
                 {
                     binding: 1,
-                    resource: this.color_buffer_view
+                    resource: this.screenBuffers.color_buffer_view
                 }
             ]
         });
 
         this.bvh_debug_bind_group = this.device.createBindGroup({
             label: "BVH Debug Bind Group",
-            layout: this.bvh_debug_bind_group_layout,
+            layout: this.renderPipeline.bindGroupLayouts.bvh_debug_bind_group_layout,
             entries: [
                 {
                     binding: 0,
@@ -306,92 +185,12 @@ export class Renderer {
         });
     }
 
-    async makePipelines() {
-        
-        const ray_tracing_pipeline_layout = this.device.createPipelineLayout({
-            bindGroupLayouts: [this.ray_tracing_bind_group_layout]
-        });
-
-        this.ray_tracing_pipeline = 
-            this.device.createComputePipeline(
-                {
-                    label: "Ray Tracing Pipeline",
-                    layout: ray_tracing_pipeline_layout,
-            
-                    compute: {
-                        module: this.device.createShaderModule({code: raytracer_kernel,}),
-                        entryPoint: 'main',
-                    },
-                }
-            );
-
-        const screen_pipeline_layout = this.device.createPipelineLayout({
-            bindGroupLayouts: [this.screen_bind_group_layout]
-        });
-
-        this.screen_pipeline = this.device.createRenderPipeline({
-            label: "Screen Pipeline",
-            layout: screen_pipeline_layout,
-            
-            vertex: {
-                module: this.device.createShaderModule({
-                code: screen_shader,
-            }),
-            entryPoint: 'vert_main',
-            },
-
-            fragment: {
-                module: this.device.createShaderModule({
-                code: screen_shader,
-            }),
-            entryPoint: 'frag_main',
-            targets: [
-                {
-                    format: "bgra8unorm"
-                }
-            ]
-            },
-
-            primitive: {
-                topology: "triangle-list"
-            }
-        });
-
-        
-        const bvh_debug_pipeline_layout = this.device.createPipelineLayout({
-            bindGroupLayouts: [this.bvh_debug_bind_group_layout]
-        });
-        // Set the vertex and fragment shader 
-        const bvh_debug_shader_module = this.device.createShaderModule({
-            code: bvh_debug_shader,
-        });
-        this.bvh_debug_pipeline = this.device.createRenderPipeline({
-            label: "BVH Debug Pipeline",
-            layout: bvh_debug_pipeline_layout,
-            
-            vertex: {
-                module: bvh_debug_shader_module,
-                entryPoint: 'vertexMain',
-            },
-        
-            fragment: {
-                module: bvh_debug_shader_module,
-                entryPoint: 'fragmentMain',
-                targets: [
-                    {
-                        format: "bgra8unorm"
-                    }
-                ],
-            },
-        
-            primitive: {
-                topology: 'line-list',
-            },
-        });
-    }
-
     createSceneBuffers(triangleCount: number, nodesUsed: number) {
         this.sceneBuffers = new SceneBufferDescription(this.device, triangleCount, nodesUsed);
+    }
+
+    createScreenBuffers() {
+        this.screenBuffers = new ScreenBufferDescription(this.device, this.canvas);
     }
     
     render(scene: Scene) {
@@ -421,7 +220,7 @@ export class Renderer {
         const commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
 
         const ray_trace_pass : GPUComputePassEncoder = commandEncoder.beginComputePass();
-        ray_trace_pass.setPipeline(this.ray_tracing_pipeline);
+        ray_trace_pass.setPipeline(this.renderPipeline.ray_tracing_pipeline);
         ray_trace_pass.setBindGroup(0, this.ray_tracing_bind_group);
         ray_trace_pass.dispatchWorkgroups(
             this.canvas.width, 
@@ -439,7 +238,7 @@ export class Renderer {
             }]
         });
 
-        renderpass.setPipeline(this.screen_pipeline);
+        renderpass.setPipeline(this.renderPipeline.screen_pipeline);
         renderpass.setBindGroup(0, this.screen_bind_group);
         renderpass.draw(3 * vertexCount, 1, 0, 0);
         
@@ -474,7 +273,7 @@ export class Renderer {
             }],
         });
 
-        passEncoder.setPipeline(this.bvh_debug_pipeline);
+        passEncoder.setPipeline(this.renderPipeline.bvh_debug_pipeline);
         passEncoder.setBindGroup(0, this.bvh_debug_bind_group);
         passEncoder.draw(12 * bvhNodeCount, 1, 0, 0);
         passEncoder.end();
