@@ -1,6 +1,9 @@
 import { App } from "./app"
 
-const canvas : HTMLCanvasElement = <HTMLCanvasElement> document.getElementById("gfx-main");
+const canvases = {
+    viewportMain: <HTMLCanvasElement>document.getElementById("gfx-main"),
+    sceneParameters: <HTMLCanvasElement>document.getElementById("scene-params")
+};
 
-const app = new App(canvas);
+const app = new App(canvases);
 app.run();
