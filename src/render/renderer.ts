@@ -5,6 +5,7 @@ import { SceneBufferDescription } from "./buffers/geometry/sceneBufferDescriptio
 import { prepareScene } from "./gfx_scene";
 import { Pipelines } from "./pipeline";
 import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
+import { PipelineBindGroups } from "./pipelineBindGroups";
 
 export class Renderer {
 
@@ -20,12 +21,8 @@ export class Renderer {
     screenBuffers!: ScreenBufferDescription;
     sceneBuffers!: SceneBufferDescription;
 
-    // Pipeline objects
-    ray_tracing_bind_group!: GPUBindGroup;
-    screen_bind_group!: GPUBindGroup;
-    bvh_debug_bind_group!: GPUBindGroup;
-
     renderPipeline!: Pipelines;
+    pipelineBindGroups!: PipelineBindGroups;
 
     frametime!: number
     logged!: Boolean
@@ -42,7 +39,7 @@ export class Renderer {
         this.renderPipeline = new Pipelines(this.device, this.currentRenderPass);
         this.createScreenBuffers();
         await this.renderPipeline.initialize();
-
+        
         this.frametime = 16;
         this.logged = false;
     }
@@ -110,79 +107,11 @@ export class Renderer {
 
     async setupScene(scene: Scene) {
         this.createSceneBuffers(scene.data.triangleCount, scene.data.nodesUsed);
-        await this.makeBindGroups();
-    }
-
-    async makeBindGroups() {
-
-        this.ray_tracing_bind_group = this.device.createBindGroup({
-            label: "Ray Tracing Bind Group",
-            layout: this.renderPipeline.bindGroupLayouts.ray_tracing_bind_group_layout,
-            entries: [
-                {
-                    binding: 0,
-                    resource: this.screenBuffers.color_buffer_view
-                },
-                {
-                    binding: 1,
-                    resource: {
-                        buffer: this.sceneBuffers.sceneParameters,
-                    }
-                },
-                {
-                    binding: 2,
-                    resource: {
-                        buffer: this.sceneBuffers.triangleBuffer,
-                    }
-                },
-                {
-                    binding: 3,
-                    resource: {
-                        buffer: this.sceneBuffers.nodeBuffer,
-                    }
-                },
-                {
-                    binding: 4,
-                    resource: {
-                        buffer: this.sceneBuffers.triangleIndexBuffer,
-                    }
-                },
-            ]
-        });
-
-        this.screen_bind_group = this.device.createBindGroup({
-            label: "Screen Bind Group",
-            layout: this.renderPipeline.bindGroupLayouts.screen_bind_group_layout,
-            entries: [
-                {
-                    binding: 0,
-                    resource:  this.screenBuffers.sampler
-                },
-                {
-                    binding: 1,
-                    resource: this.screenBuffers.color_buffer_view
-                }
-            ]
-        });
-
-        this.bvh_debug_bind_group = this.device.createBindGroup({
-            label: "BVH Debug Bind Group",
-            layout: this.renderPipeline.bindGroupLayouts.bvh_debug_bind_group_layout,
-            entries: [
-                {
-                    binding: 0,
-                    resource: {
-                        buffer: this.sceneBuffers.nodeBuffer,
-                    } 
-                },
-                {
-                    binding: 1,
-                    resource: {
-                        buffer: this.sceneBuffers.viewMatrixBuffer,
-                    }
-                }
-            ]
-        });
+        this.pipelineBindGroups = new PipelineBindGroups(this.device, 
+            this.currentRenderPass, 
+            this.screenBuffers, 
+            this.sceneBuffers);
+        await this.pipelineBindGroups.initialize();
     }
 
     createSceneBuffers(triangleCount: number, nodesUsed: number) {
@@ -221,7 +150,7 @@ export class Renderer {
 
         const ray_trace_pass : GPUComputePassEncoder = commandEncoder.beginComputePass();
         ray_trace_pass.setPipeline(this.renderPipeline.ray_tracing_pipeline);
-        ray_trace_pass.setBindGroup(0, this.ray_tracing_bind_group);
+        ray_trace_pass.setBindGroup(0, this.pipelineBindGroups.ray_tracing_bind_group);
         ray_trace_pass.dispatchWorkgroups(
             this.canvas.width, 
             this.canvas.height, 1
@@ -239,7 +168,7 @@ export class Renderer {
         });
 
         renderpass.setPipeline(this.renderPipeline.screen_pipeline);
-        renderpass.setBindGroup(0, this.screen_bind_group);
+        renderpass.setBindGroup(0, this.pipelineBindGroups.screen_bind_group);
         renderpass.draw(3 * vertexCount, 1, 0, 0);
         
         renderpass.end();
@@ -274,7 +203,7 @@ export class Renderer {
         });
 
         passEncoder.setPipeline(this.renderPipeline.bvh_debug_pipeline);
-        passEncoder.setBindGroup(0, this.bvh_debug_bind_group);
+        passEncoder.setBindGroup(0, this.pipelineBindGroups.bvh_debug_bind_group);
         passEncoder.draw(12 * bvhNodeCount, 1, 0, 0);
         passEncoder.end();
 

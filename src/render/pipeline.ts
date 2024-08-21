@@ -25,8 +25,14 @@ export class Pipelines {
 
     async initialize() {
         await this.createScreenPipeline();
-        await this.createRayTracingPipelines();
-        await this.createBVHPipeline();
+        
+        if (this.currentRenderPass === RenderPass.Default) {
+            await this.createRayTracingPipelines();
+        } else if (this.currentRenderPass === RenderPass.BVHDebug) {
+            await this.createBVHPipeline();
+        } else {
+            console.error("Invalid render pass");
+        }
     }
 
     createRayTracingPipelines = async () => {
