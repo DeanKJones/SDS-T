@@ -11,12 +11,12 @@ export class Scene {
 
         this.data = new SceneData();
 
-        /* const colorRed: vec3 = [
+        const colorRed: vec3 = [
             1, 0, 0
         ];
         const colorBlue: vec3 = [
             0, 0, 1
-        ]; */
+        ]; 
         const colorGrey: vec3 = [
             0.9, 0.9, 0.9
         ]
@@ -46,12 +46,36 @@ export class Scene {
         const t_wall_back_2 = new Triangle( cubeVerts.bottom_left_back, 
                                             cubeVerts.top_right_back, 
                                             cubeVerts.bottom_right_back, colorGrey);
+        const t_wall_left_1 = new Triangle( cubeVerts.bottom_left_front,
+                                            cubeVerts.top_left_back,
+                                            cubeVerts.bottom_left_back, colorRed);
+        const t_wall_left_2 = new Triangle( cubeVerts.bottom_left_front,
+                                            cubeVerts.top_left_front,
+                                            cubeVerts.top_left_back, colorRed);
+        const t_wall_right_1 = new Triangle( cubeVerts.bottom_right_back,
+                                            cubeVerts.top_right_back,
+                                            cubeVerts.bottom_right_front, colorBlue);
+        const t_wall_right_2 = new Triangle( cubeVerts.bottom_right_front,
+                                            cubeVerts.top_right_back,
+                                            cubeVerts.top_right_front, colorBlue);
+        const t_wall_top_1 = new Triangle( cubeVerts.top_left_back,
+                                            cubeVerts.top_left_front,
+                                            cubeVerts.top_right_front, colorGrey);
+        const t_wall_top_2 = new Triangle( cubeVerts.top_left_back,
+                                            cubeVerts.top_right_front,
+                                            cubeVerts.top_right_back, colorGrey);
 
 
         this.data.triangles.push(t_floor_1);
         this.data.triangles.push(t_floor_2);
         this.data.triangles.push(t_wall_back_1);
         this.data.triangles.push(t_wall_back_2);
+        this.data.triangles.push(t_wall_left_1);
+        this.data.triangles.push(t_wall_left_2);
+        this.data.triangles.push(t_wall_right_1);
+        this.data.triangles.push(t_wall_right_2);
+        this.data.triangles.push(t_wall_top_1);
+        this.data.triangles.push(t_wall_top_2);
 
         this.data.triangleCount = this.data.triangles.length;
         this.data.camera = new Camera([0, 3.0, 10.0], 180, 0);
