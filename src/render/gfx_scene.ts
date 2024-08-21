@@ -59,7 +59,8 @@ export function prepareScene(gfx_scene_instance: gfx_scene_instance)
                 for (let channel = 0; channel < 3; channel++) {
                     triangleData[16 * i + 12 + channel] = scene.data.triangles[i].color[channel];
                 }
-                triangleData[16 * i + 15] = 0.0;
+                
+                triangleData[16 * i + 15] = scene.data.triangles[i].isLambert ? 0.0 : 1.0;
             }
         
             const RaytracingBVHData = new Float32Array(8 * scene.data.nodesUsed);

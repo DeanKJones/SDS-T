@@ -42,10 +42,10 @@ export class Scene {
 
         const t_wall_back_1 = new Triangle( cubeVerts.bottom_left_back, 
                                             cubeVerts.top_left_back, 
-                                            cubeVerts.top_right_back, colorGrey);
+                                            cubeVerts.top_right_back, colorGrey, false);
         const t_wall_back_2 = new Triangle( cubeVerts.bottom_left_back, 
                                             cubeVerts.top_right_back, 
-                                            cubeVerts.bottom_right_back, colorGrey);
+                                            cubeVerts.bottom_right_back, colorGrey, false);
         const t_wall_left_1 = new Triangle( cubeVerts.bottom_left_front,
                                             cubeVerts.top_left_back,
                                             cubeVerts.bottom_left_back, colorRed);

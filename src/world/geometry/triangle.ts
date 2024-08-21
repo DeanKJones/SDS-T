@@ -8,12 +8,14 @@ export class Triangle {
     model!: mat4;
     color: vec3;
     vertices: vec3[];
+    isLambert: boolean;
 
-    constructor(v1: vec3, v2: vec3, v3: vec3, color: vec3) {
+    constructor(v1: vec3, v2: vec3, v3: vec3, color: vec3, isLambert?: boolean) {
         this.vertices = [v1, v2, v3];
         this.position = this.get_centroid();
         this.eulers = vec3.create();
         this.color = color;
+        this.isLambert = isLambert || true;
     }
 
     update() {
