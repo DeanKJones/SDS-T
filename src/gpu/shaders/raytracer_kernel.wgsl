@@ -1,5 +1,6 @@
-
 #include "pbr_sky.wgsl"
+
+var<private> TAU = 6.2831855;
 
 struct Sphere {
     center: vec3<f32>,
@@ -16,6 +17,7 @@ struct Triangle {
     //float
     color: vec3<f32>,
     //float
+    isLambert: u32,
 }
 
 struct ObjectData {
@@ -57,6 +59,11 @@ struct RenderState {
     hit: bool,
     position: vec3<f32>,
     normal: vec3<f32>,
+    isLambert: bool,
+}
+
+struct seed_t {
+    v: vec3<i32>,
 }
 
 @group(0) @binding(0) var color_buffer: texture_storage_2d<rgba8unorm, write>;
@@ -65,7 +72,7 @@ struct RenderState {
 @group(0) @binding(3) var<storage, read> tree: BVH;
 @group(0) @binding(4) var<storage, read> triangleLookup: ObjectIndices;
 
-var<private> seed: u32 = 123456789; 
+var<private> seed: u32 = 42069u;
 
 @compute @workgroup_size(1,1,1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
@@ -113,7 +120,12 @@ fn rayColor(ray: Ray) -> vec3<f32> {
 
         //Set up for next trace
         temp_ray.origin = result.position;
-        temp_ray.direction = normalize(reflect(temp_ray.direction, result.normal));
+        if (result.isLambert) {
+            temp_ray.direction = random_cos_weighted_hemisphere_direction(result.normal);
+        }
+        else { 
+            temp_ray.direction = normalize(reflect(temp_ray.direction, result.normal));
+        }
     }
 
     //Rays which reached terminal state and bounced indefinitely
@@ -253,10 +265,11 @@ fn hit_triangle(ray: Ray, tri: Triangle, tMin: f32, tMax: f32, oldRenderState: R
     //Normal of the triangle
     var n: vec3<f32> = normalize(cross(edge_ab, edge_ac));
     var ray_dot_tri: f32 = dot(ray.direction, n);
+    
     //backface reversal
     if (ray_dot_tri > 0.0) {
         ray_dot_tri = ray_dot_tri * -1;
-        n = n * -1;
+        n = n * 1; // idk why but this seemed to have fixed an issue with backface material scattering
     }
     //early exit, ray parallel with triangle surface
     if (abs(ray_dot_tri) < 0.00001) {
@@ -308,9 +321,14 @@ fn hit_triangle(ray: Ray, tri: Triangle, tMin: f32, tMax: f32, oldRenderState: R
         renderState.color = tri.color;
         renderState.t = t;
         renderState.hit = true;
+        if (tri.isLambert != 0u) {
+            renderState.isLambert = false;
+        }
+        else {
+            renderState.isLambert = true;
+        }
         return renderState;
     }
-
     return renderState;
 }
 
@@ -332,13 +350,21 @@ fn hit_aabb(ray: Ray, node: Node) -> f32 {
     }
 }
 
-fn generateJitter() -> vec2<f32> {
-    let jitterX: f32 = (rand() - 0.5) * 2.0 * 0.00001; // Adjust the scale of jitter as needed
-    let jitterY: f32 = (rand() - 0.5) * 2.0 * 0.00001; // Adjust the scale of jitter as needed
-    return vec2<f32>(jitterX, jitterY);
+fn random() -> f32 {
+    seed = seed * 747796404u + 2891336453u;
+    let word = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
+    let word2 = ((word >> 22u) ^ word) * 288805656u;
+    return f32((word2 >> 22u) ^ word2) * bitcast<f32>(0x2f800004u);
 }
 
-fn rand() -> f32 {
-    seed = (1664525u * seed + 1013904223u) % 0xFFFFFFFFu;
-    return f32(seed) / f32(0xFFFFFFFFu);
+fn random_cos_weighted_hemisphere_direction(n: vec3<f32>) -> vec3<f32> {
+    let  r = vec2<f32>(random(), random());
+    let uu = normalize(cross(n, select(vec3<f32>(0,1,0), vec3<f32>(1,0,0), abs(n.y) > .5)));
+    let vv = cross(uu, n);
+    let ra = sqrt(r.y);
+    let rx = ra * cos(TAU * r.x);
+    let ry = ra * sin(TAU * r.x);
+    let rz = sqrt(1. - r.y);
+    let rr = vec3<f32>(rx * uu + ry * vv + rz * n);
+    return normalize(rr);
 }
