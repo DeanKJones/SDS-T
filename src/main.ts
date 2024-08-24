@@ -6,4 +6,4 @@ const canvases = {
 };
 
 const app = new App(canvases);
-app.run();
+app.initialize();

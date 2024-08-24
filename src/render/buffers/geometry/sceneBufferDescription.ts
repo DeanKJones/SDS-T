@@ -1,33 +1,38 @@
 export class SceneBufferDescription {
-    triangleBuffer: GPUBuffer;
-    nodeBuffer: GPUBuffer;
-    triangleIndexBuffer: GPUBuffer;
-    sceneParameters: GPUBuffer;
-    viewMatrixBuffer: GPUBuffer;
 
-    constructor(device: GPUDevice, triangleCount: number, nodesUsed: number) {
-        this.triangleBuffer = device.createBuffer({
-            size: 64 * triangleCount,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    voxelBuffer: GPUBuffer;
+    voxelIndexBuffer: GPUBuffer;
+    nodeBuffer: GPUBuffer;
+    sceneParameters: GPUBuffer;
+    uniformBuffer: GPUBuffer;
+
+    constructor(device: GPUDevice, voxelCount: number, nodesUsed: number) {
+        this.voxelBuffer = device.createBuffer({
+            label: "Voxel Buffer",
+            size: 8 * 4 * voxelCount,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+
+        this.voxelIndexBuffer = device.createBuffer({
+            label: "Voxel Index Buffer",
+            size: 4 * voxelCount,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         });
 
         this.nodeBuffer = device.createBuffer({
+            label: "Node Buffer",
             size: 32 * nodesUsed,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
-        this.triangleIndexBuffer = device.createBuffer({
-            size: 4 * triangleCount,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-
         this.sceneParameters = device.createBuffer({
+            label: "Scene Parameters Buffer",
             size: 64,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        this.viewMatrixBuffer = device.createBuffer({
-            size: 64,
+        this.uniformBuffer = device.createBuffer({
+            size: 4 * 16 + 4, // mat4 + float
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
     }

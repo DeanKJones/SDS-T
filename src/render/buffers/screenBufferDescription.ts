@@ -15,6 +15,7 @@ export class ScreenBufferDescription {
 
         this.color_buffer = this.device.createTexture(
             {
+                label: "Color Buffer",
                 size: {
                     width: this.canvas.width,
                     height: this.canvas.height,
@@ -27,6 +28,7 @@ export class ScreenBufferDescription {
         this.color_buffer_view = this.color_buffer.createView();
 
         const samplerDescriptor: GPUSamplerDescriptor = {
+            label: "Sampler",
             addressModeU: "repeat",
             addressModeV: "repeat",
             magFilter: "linear",

@@ -4,29 +4,32 @@ import { Scene } from "./world/scene";
 export class App 
 {
     canvases: Map<string, HTMLCanvasElement>;
-    renderer: Renderer;
+    renderer!: Renderer;
     scene!: Scene;
 
-    forwards_amount: number;
-    right_amount: number;
-    up_amount: number;
+    forwards_amount: number = 0;
+    right_amount: number = 0;
+    up_amount: number = 0;
 
     canvas_selected: boolean = false;
     
     constructor(canvases: { [key: string]: HTMLCanvasElement }) {
         this.canvases = new Map(Object.entries(canvases));
+    }
 
+    async initialize() {
         this.renderer = new Renderer(this.canvases.get("viewportMain")!);
-        this.renderer.Initialize().then(() => {
-            this.scene = new Scene();
-            this.renderer.setupScene(this.scene).then(() => {
-                this.run();
-            });
-        });
+        await this.renderer.Initialize();
+        
+        this.scene = await Scene.create();
+        await this.scene.initialize();
+        await this.renderer.setupScene(this.scene);
+    
+        this.run();
 
         document.addEventListener('keydown', this.handle_keypress.bind(this));
         document.addEventListener('keyup', this.handle_keyrelease.bind(this));
-
+    
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement !== this.canvases.get("viewportMain")) {
                 this.canvas_selected = false;
@@ -36,10 +39,6 @@ export class App
                 console.log("Pointer locked to viewportMain");
             }
         });
-
-        this.forwards_amount = 0;
-        this.right_amount = 0;
-        this.up_amount = 0;
 
         this.canvases.get("viewportMain")!.onclick = () => {
             this.canvases.get("viewportMain")!.requestPointerLock();

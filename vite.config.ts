@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';    
 import glsl from 'vite-plugin-glsl';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig({
-    plugins: [glsl()],
+    plugins: [
+        glsl(),
+        nodePolyfills(),
+    ],
     build: {
         outDir: 'dist',
         rollupOptions: {
@@ -12,4 +16,7 @@ export default defineConfig({
             },
         },
     },
+    assetsInclude: [
+        '/assets/models/*.vox',
+    ],
 });

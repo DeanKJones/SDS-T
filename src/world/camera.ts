@@ -6,6 +6,8 @@ export class Camera {
     position: vec3;
     orientation: quat;
     viewMatrix: mat4;
+    yaw: number;
+    pitch: number;
     projectionMatrix: mat4;
     forwards: vec3;
     right: vec3;
@@ -16,6 +18,8 @@ export class Camera {
         this.orientation = quat.create();
         quat.rotateX(this.orientation, this.orientation, Deg2Rad(phi));
         quat.rotateY(this.orientation, this.orientation, Deg2Rad(theta));
+        this.yaw = 0;
+        this.pitch = 0;
         this.forwards = [0, 0, -1]; // Default forward direction
         this.up = [0, 1, 0]; // Default up direction
         this.right = [1, 0, 0]; // Default right direction
@@ -24,15 +28,20 @@ export class Camera {
     }
 
     calculateViewMatrix() {
-        vec3.transformQuat(this.forwards, vec3.fromValues(0, 0, 1), this.orientation);
-        vec3.cross(this.right, this.forwards, vec3.fromValues(0, 1, 0));
-        vec3.normalize(this.right, this.right);
+        // Calculate forward vector
+        vec3.set(this.forwards, 0, 0, -1);
+        vec3.transformQuat(this.forwards, this.forwards, this.orientation);
+
+        // Calculate right vector
+        vec3.set(this.right, 1, 0, 0);
+        vec3.transformQuat(this.right, this.right, this.orientation);
+        // Calculate up vector
         vec3.cross(this.up, this.right, this.forwards);
-        vec3.normalize(this.up, this.up);
 
-        var target: vec3 = vec3.create();
+        // Calculate target position
+        let target = vec3.create();
         vec3.add(target, this.position, this.forwards);
-
+        // Create view matrix
         mat4.lookAt(this.viewMatrix, this.position, target, this.up);
     }
 
@@ -47,24 +56,19 @@ export class Camera {
     }
 
     rotate(dX: number, dY: number) {
-        // Create quaternions for the rotations
-        let qx = quat.create();
-        let qy = quat.create();
-    
-        // Rotate around the Y axis (yaw) for horizontal movement (dX)
-        quat.rotateY(qy, qy, Deg2Rad(-dX));
-    
-        // Rotate around the X axis (pitch) for vertical movement (dY)
-        quat.rotateX(qx, qx, Deg2Rad(-dY));
-    
-        // Combine the rotations
-        quat.multiply(this.orientation, qy, this.orientation);
-        quat.multiply(this.orientation, qx, this.orientation);
-    
-        // Normalize the quaternion to avoid drift
-        quat.normalize(this.orientation, this.orientation);
-    
-        // Update the camera direction display
+        // Update yaw and pitch
+        this.yaw += Deg2Rad(-dX);
+        this.pitch += Deg2Rad(-dY);
+
+        // Clamp pitch to avoid flipping
+        this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch));
+
+        // Reconstruct orientation quaternion
+        quat.identity(this.orientation);
+        quat.rotateY(this.orientation, this.orientation, this.yaw);
+        quat.rotateX(this.orientation, this.orientation, this.pitch);
+
+        // Update the camera direction
         this.calculateViewMatrix();
     }
 
