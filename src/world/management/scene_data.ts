@@ -1,23 +1,39 @@
-import { Triangle } from "../geometry/triangle";
 import { Camera } from "../camera";
 import { Node } from "../bvh/node";
+import { Voxel } from "../voxel/voxel";
 
 export class SceneData {
-    triangles: Triangle[];
-    triangleCount: number;
-    triangleIndices: number[];
+
+    voxels: Voxel[];
+    voxelCount: number;
+    voxelIndices: number[];
 
     camera: Camera;
     nodes: Node[];
     nodesUsed: number;
 
     constructor() {
-        this.triangles = [];
-        this.triangleCount = 0;
-        this.triangleIndices = [];
+        this.voxels = [];
+        this.voxelCount = 0;
+        this.voxelIndices = [];
         this.camera = new Camera([0, 0, 0], 0, 0);
         this.nodes = [];
         this.nodesUsed = 0;
+    }
+
+    addVoxelObject(voxelObject: Voxel) {
+        this.voxels.push(voxelObject);
+        this.voxelCount += voxelObject.numberOfVoxels;
+
+        // Here you would also update your BVH or other acceleration structures
+    }
+
+    updateVoxelObjectTransforms() {
+        for (const voxelObject of this.voxels) {
+            if (!voxelObject.parent) {
+                voxelObject.updateTransform();
+            }
+        }
     }
 
     renderUI(ctx: CanvasRenderingContext2D) {
@@ -37,8 +53,7 @@ export class SceneData {
         // Regular text style
         ctx.font = '12px Arial';
     
-        // Scene Parameters
-        ctx.fillText(`Triangles: ${this.triangleCount}`, 10, 40);
+        // Scene Parameters 
         ctx.fillText(`Nodes Used: ${this.nodesUsed}`, 10, 60);
     
         // Convert Float32Array to regular array before using map

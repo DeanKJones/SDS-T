@@ -58,7 +58,7 @@ export class PipelineBindGroups {
                 {
                     binding: 2,
                     resource: {
-                        buffer: this.sceneBuffers.triangleBuffer,
+                        buffer: this.sceneBuffers.voxelBuffer,
                     }
                 },
                 {
@@ -70,7 +70,7 @@ export class PipelineBindGroups {
                 {
                     binding: 4,
                     resource: {
-                        buffer: this.sceneBuffers.triangleIndexBuffer,
+                        buffer: this.sceneBuffers.voxelIndexBuffer,
                     }
                 },
             ]
@@ -112,7 +112,7 @@ export class PipelineBindGroups {
                 {
                     binding: 1,
                     resource: {
-                        buffer: this.sceneBuffers.viewMatrixBuffer,
+                        buffer: this.sceneBuffers.uniformBuffer,
                     }
                 }
             ]

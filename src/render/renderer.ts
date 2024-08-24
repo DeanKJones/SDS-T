@@ -6,6 +6,10 @@ import { prepareScene } from "./gfx_scene";
 import { Pipelines } from "./pipeline";
 import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
 import { PipelineBindGroups } from "./pipelineBindGroups";
+import { generateBVHLineVertices } from "./debugging/BVHDebugRenderHelpers";
+import shaderCode from "../gpu/shaders/bvh_debug_shader.wgsl";
+import { Node } from "../world/bvh/node";
+import { Camera } from "../world/camera";
 
 export class Renderer {
 
@@ -106,7 +110,7 @@ export class Renderer {
     }
 
     async setupScene(scene: Scene) {
-        this.createSceneBuffers(scene.data.triangleCount, scene.data.nodesUsed);
+        this.createSceneBuffers(scene.data.voxelCount, scene.data.nodesUsed);
         this.pipelineBindGroups = new PipelineBindGroups(this.device, 
             this.currentRenderPass, 
             this.screenBuffers, 
@@ -114,8 +118,8 @@ export class Renderer {
         await this.pipelineBindGroups.initialize();
     }
 
-    createSceneBuffers(triangleCount: number, nodesUsed: number) {
-        this.sceneBuffers = new SceneBufferDescription(this.device, triangleCount, nodesUsed);
+    createSceneBuffers(voxelCount: number, nodesUsed: number) {
+        this.sceneBuffers = new SceneBufferDescription(this.device, voxelCount, nodesUsed);
     }
 
     createScreenBuffers() {
@@ -124,7 +128,7 @@ export class Renderer {
     
     render(scene: Scene) {
         if (!this.sceneBuffers) {
-            this.createSceneBuffers(scene.data.triangleCount, scene.data.nodesUsed);
+            this.createSceneBuffers(scene.data.voxelCount, scene.data.nodesUsed);
         }
         const gfx_scene_instance = {
             scene: scene,
@@ -135,15 +139,15 @@ export class Renderer {
 
         switch (this.currentRenderPass) {
             case RenderPass.Default:
-                this.renderDefault(gfx_scene_instance.scene.data.triangleCount);
+                this.renderDefault(gfx_scene_instance.scene.data.voxelCount);
                 break;
             case RenderPass.BVHDebug:
-                this.renderBVHDebug(gfx_scene_instance.scene.data.nodes.length);
+                this.renderBVHDebug(gfx_scene_instance.scene.data.nodes, gfx_scene_instance.scene.data.camera);
                 break;
         }
     }
 
-    renderDefault = (vertexCount: number) => {
+    renderDefault = (voxelCount: number) => {
         let start: number = performance.now();
 
         const commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
@@ -169,7 +173,7 @@ export class Renderer {
 
         renderpass.setPipeline(this.renderPipeline.screen_pipeline);
         renderpass.setBindGroup(0, this.pipelineBindGroups.screen_bind_group);
-        renderpass.draw(3 * vertexCount, 1, 0, 0);
+        renderpass.draw(voxelCount, 1, 0, 0);
         
         renderpass.end();
     
@@ -187,25 +191,94 @@ export class Renderer {
         );
     }   
 
-    renderBVHDebug = (bvhNodeCount: number) => {
+    renderBVHDebug = (nodes: Array<Node>, camera: Camera) => {
 
         let start: number = performance.now();
 
-        const commandEncoder = this.device.createCommandEncoder();
-        const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
-        const passEncoder = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: textureView,
-                loadOp: 'clear',
-                storeOp: 'store',
-                clearValue: { r: 0.2, g: 0.2, b: 0.2, a: 1 },
-            }],
+        const vertices = generateBVHLineVertices(nodes);
+        const maxDepth = Math.max(...vertices.filter((_, i) => i % 4 === 3));
+
+        // Create vertex buffer
+        const vertexBuffer = this.device.createBuffer({
+            size: vertices.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
+
+        // Create uniform buffer
+        const uniformBuffer = this.device.createBuffer({
+            size: 4 * 32 + 4, // mat4 + float
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        passEncoder.setPipeline(this.renderPipeline.bvh_debug_pipeline);
-        passEncoder.setBindGroup(0, this.pipelineBindGroups.bvh_debug_bind_group);
-        passEncoder.draw(12 * bvhNodeCount, 1, 0, 0);
-        passEncoder.end();
+        // Create bind group layout and pipeline layout
+        const bindGroupLayout = this.device.createBindGroupLayout({
+            entries: [{
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                buffer: { type: 'uniform' }
+            }]
+        });
+
+        const pipelineLayout = this.device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout]
+        });
+
+        // Create render pipeline
+        const pipeline = this.device.createRenderPipeline({
+            layout: pipelineLayout,
+            vertex: {
+                module: this.device.createShaderModule({ code: shaderCode }),
+                entryPoint: 'vertexMain',
+                buffers: [{
+                    arrayStride: 4 * 64, // vec3 + float
+                    attributes: [
+                        { shaderLocation: 0, offset: 0, format: 'float32x4' }, // position
+                        { shaderLocation: 1, offset: 4 * 8, format: 'float32x4' } // color  
+                    ]
+                }]
+            },
+            fragment: {
+                module: this.device.createShaderModule({ code: shaderCode }),
+                entryPoint: 'fragmentMain',
+                targets: [{ format: this.context.getCurrentTexture().format }]
+            },
+            primitive: {
+                topology: 'line-list'
+            }
+        });
+
+        // Create bind group
+        const bindGroup = this.device.createBindGroup({
+            layout: bindGroupLayout,
+            entries: [{
+                binding: 0,
+                resource: { buffer: uniformBuffer }
+            }]
+        });
+
+        // Update uniform buffer with new view-projection matrix and max depth
+        const viewProjectionMatrix = camera.viewMatrix; // Calculate this based on your camera
+        const uniformData = new Float32Array(16 + 1);
+        uniformData.set(viewProjectionMatrix);
+        uniformData[16] = maxDepth;
+        this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+
+        const commandEncoder = this.device.createCommandEncoder();
+        const renderPass = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: this.context.getCurrentTexture().createView(),
+                loadOp: 'clear',
+                storeOp: 'store',
+                clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }
+            }]
+        });
+
+        renderPass.setPipeline(pipeline);
+        renderPass.setBindGroup(0, bindGroup);
+        renderPass.setVertexBuffer(0, vertexBuffer);
+        renderPass.draw(vertices.length / 4, 1, 0, 0);
+        renderPass.end();
 
         this.device.queue.submit([commandEncoder.finish()]);
 

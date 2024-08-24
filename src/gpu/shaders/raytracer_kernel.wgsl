@@ -20,8 +20,14 @@ struct Triangle {
     isLambert: u32,
 }
 
+struct Voxel {
+    position: vec3<f32>,
+    colorIndex: u32,
+    objectIndex: u32,
+}
+
 struct ObjectData {
-    triangles: array<Triangle>,
+    voxels: array<Voxel>,
 }
 
 struct Node {
@@ -36,7 +42,7 @@ struct BVH {
 }
 
 struct ObjectIndices {
-    primitiveIndices: array<f32>,
+    primitiveIndices: array<u32>,
 }
 
 struct Ray {
@@ -59,7 +65,8 @@ struct RenderState {
     hit: bool,
     position: vec3<f32>,
     normal: vec3<f32>,
-    isLambert: bool,
+    colorIndex: u32,
+    objectIndex: u32,
 }
 
 struct seed_t {
@@ -69,8 +76,8 @@ struct seed_t {
 @group(0) @binding(0) var color_buffer: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(1) var<uniform> scene: SceneData;
 @group(0) @binding(2) var<storage, read> objects: ObjectData;
-@group(0) @binding(3) var<storage, read> tree: BVH;
-@group(0) @binding(4) var<storage, read> triangleLookup: ObjectIndices;
+@group(0) @binding(3) var<storage, read> bvh_nodes: BVH;
+@group(0) @binding(4) var<storage, read> voxel_indices: ObjectIndices;
 
 var<private> seed: u32 = 42069u;
 
@@ -120,12 +127,7 @@ fn rayColor(ray: Ray) -> vec3<f32> {
 
         //Set up for next trace
         temp_ray.origin = result.position;
-        if (result.isLambert) {
-            temp_ray.direction = random_cos_weighted_hemisphere_direction(result.normal);
-        }
-        else { 
-            temp_ray.direction = normalize(reflect(temp_ray.direction, result.normal));
-        }
+        temp_ray.direction = normalize(reflect(temp_ray.direction, result.normal));
     }
 
     //Rays which reached terminal state and bounced indefinitely
@@ -144,7 +146,7 @@ fn trace(ray: Ray) -> RenderState {
     var nearestHit: f32 = 9999;
 
     //Set up for BVH Traversal
-    var node: Node = tree.nodes[0];
+    var node: Node = bvh_nodes.nodes[0];
     var stack: array<Node, 15>;
     var stackLocation: u32 = 0;
 
@@ -154,8 +156,8 @@ fn trace(ray: Ray) -> RenderState {
         var contents: u32 = u32(node.leftChild);
 
         if (primitiveCount == 0) {
-            var child1: Node = tree.nodes[contents];
-            var child2: Node = tree.nodes[contents + 1];
+            var child1: Node = bvh_nodes.nodes[contents];
+            var child2: Node = bvh_nodes.nodes[contents + 1];
 
             var distance1: f32 = hit_aabb(ray, child1);
             var distance2: f32 = hit_aabb(ray, child2);
@@ -189,10 +191,9 @@ fn trace(ray: Ray) -> RenderState {
         else {
             for (var i: u32 = 0; i < primitiveCount; i++) {
         
-                var newRenderState: RenderState = hit_triangle(
+                var newRenderState: RenderState = hitVoxel(
                     ray, 
-                    objects.triangles[u32(triangleLookup.primitiveIndices[i + contents])], 
-                    0.001, nearestHit, renderState
+                    objects.voxels[u32(i + contents)]
                 );
 
                 if (newRenderState.hit) {
@@ -321,14 +322,52 @@ fn hit_triangle(ray: Ray, tri: Triangle, tMin: f32, tMax: f32, oldRenderState: R
         renderState.color = tri.color;
         renderState.t = t;
         renderState.hit = true;
-        if (tri.isLambert != 0u) {
-            renderState.isLambert = false;
-        }
-        else {
-            renderState.isLambert = true;
-        }
         return renderState;
     }
+    return renderState;
+}
+
+fn hitVoxel(ray: Ray, voxel: Voxel) -> RenderState {
+    let voxel_min = voxel.position;
+    let voxel_max = voxel.position + vec3<f32>(1.0, 1.0, 1.0); // Assuming unit-sized voxels
+
+    let t1 = (voxel_min - ray.origin) / ray.direction;
+    let t2 = (voxel_max - ray.origin) / ray.direction;
+
+    let tmin = min(t1, t2);
+    let tmax = max(t1, t2);
+
+    let tNear = max(max(tmin.x, tmin.y), tmin.z);
+    let tFar = min(min(tmax.x, tmax.y), tmax.z);
+
+    var renderState: RenderState;
+    renderState.hit = false;
+
+    if (tNear < tFar && tFar > 0.0) {
+        renderState.hit = true;
+        renderState.t = tNear;
+        renderState.position = ray.origin + ray.direction * tNear;
+
+        // Calculate normal based on which face was hit
+        let epsilon = 0.0001;
+        if (abs(renderState.position.x - voxel_min.x) < epsilon) {
+            renderState.normal = vec3<f32>(-1.0, 0.0, 0.0);
+        } else if (abs(renderState.position.x - voxel_max.x) < epsilon) {
+            renderState.normal = vec3<f32>(1.0, 0.0, 0.0);
+        } else if (abs(renderState.position.y - voxel_min.y) < epsilon) {
+            renderState.normal = vec3<f32>(0.0, -1.0, 0.0);
+        } else if (abs(renderState.position.y - voxel_max.y) < epsilon) {
+            renderState.normal = vec3<f32>(0.0, 1.0, 0.0);
+        } else if (abs(renderState.position.z - voxel_min.z) < epsilon) {
+            renderState.normal = vec3<f32>(0.0, 0.0, -1.0);
+        } else {
+            renderState.normal = vec3<f32>(0.0, 0.0, 1.0);
+        }
+
+        renderState.colorIndex = voxel.colorIndex;
+        renderState.objectIndex = voxel.objectIndex;
+    }
+
     return renderState;
 }
 

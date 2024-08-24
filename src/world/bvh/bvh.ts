@@ -1,8 +1,6 @@
 import { vec3 } from "gl-matrix";
 import { Node } from "./node";
 import { SceneData } from "../management/scene_data";
-import { Triangle } from "../geometry/triangle";
-
 
 export class BVH {
     data: SceneData;
@@ -12,54 +10,63 @@ export class BVH {
     }
 
     buildBVH() {
-        const allTriangles = this.data.triangles;
-        //this.data.triangleCount = allTriangles.length;
-        this.data.triangleIndices = Array.from({ length: this.data.triangleCount }, (_, i) => i);
+        // Flatten all voxels from all voxel objects into a single array
+        const allVoxels: {position: vec3, colorIndex: number, objectIndex: number}[] = [];
+        this.data.voxels.forEach((voxelObject, objectIndex) => {
+            for (let i = 0; i < voxelObject.voxels.length; i += 4) {
+                allVoxels.push({
+                    position: vec3.fromValues(
+                        voxelObject.voxels[i],
+                        voxelObject.voxels[i + 1],
+                        voxelObject.voxels[i + 2]
+                    ),
+                    colorIndex: voxelObject.voxels[i + 3],
+                    objectIndex: objectIndex
+                });
+            }
+        });
 
-        this.data.nodes = new Array(2 * this.data.triangleCount - 1);
-        for (let i = 0; i < 2 * this.data.triangleCount - 1; i++) {
+        this.data.voxelCount = allVoxels.length;
+        this.data.voxelIndices = Array.from({ length: this.data.voxelCount }, (_, i) => i);
+
+        // Create nodes for the BVH
+        this.data.nodes = new Array(2 * this.data.voxelCount - 1);
+        for (let i = 0; i < 2 * this.data.voxelCount - 1; i++) {
             this.data.nodes[i] = new Node();
         }
 
         const root: Node = this.data.nodes[0];
         root.leftChild = 0;
-        root.primitiveCount = this.data.triangleCount;
-        this.data.nodesUsed += 1;
+        root.primitiveCount = this.data.voxelCount;
+        this.data.nodesUsed = 1;
 
-        this.updateBounds(0, allTriangles, this.data.triangleIndices);
-        this.subdivide(0, allTriangles, this.data.triangleIndices);
+        this.updateBounds(0, allVoxels, this.data.voxelIndices);
+        this.subdivide(0, allVoxels, this.data.voxelIndices);
     }
 
-    updateBounds(nodeIndex: number, triangles: Triangle[], triangleIndices: number[]) {
+    updateBounds(nodeIndex: number, voxels: {position: vec3, colorIndex: number, objectIndex: number}[], voxelIndices: number[]) {
         const node: Node = this.data.nodes[nodeIndex];
-        node.minCorner = [999999, 999999, 999999];
-        node.maxCorner = [-999999, -999999, -999999];
+        node.minCorner = vec3.fromValues(Infinity, Infinity, Infinity);
+        node.maxCorner = vec3.fromValues(-Infinity, -Infinity, -Infinity);
 
         for (let i = 0; i < node.primitiveCount; i++) {
-            const triangle: Triangle = triangles[triangleIndices[node.leftChild + i]];
-
-            triangle.vertices.forEach((corner: vec3) => {
-                vec3.min(node.minCorner, node.minCorner, corner);
-                vec3.max(node.maxCorner, node.maxCorner, corner);
-            });
+            const voxel = voxels[voxelIndices[node.leftChild + i]];
+            vec3.min(node.minCorner, node.minCorner, voxel.position);
+            vec3.max(node.maxCorner, node.maxCorner, voxel.position);
         }
     }
 
-    subdivide(nodeIndex: number, triangles: Triangle[], triangleIndices: number[]) {
+    subdivide(nodeIndex: number, voxels: {position: vec3, colorIndex: number, objectIndex: number}[], voxelIndices: number[]) {
         const node: Node = this.data.nodes[nodeIndex];
 
-        if (node.primitiveCount <= 2) {
+        if (node.primitiveCount <= 4) { // You can adjust this threshold
             return;
         }
 
         const extent: vec3 = vec3.subtract(vec3.create(), node.maxCorner, node.minCorner);
         let axis = 0;
-        if (extent[1] > extent[axis]) {
-            axis = 1;
-        }
-        if (extent[2] > extent[axis]) {
-            axis = 2;
-        }
+        if (extent[1] > extent[axis]) axis = 1;
+        if (extent[2] > extent[axis]) axis = 2;
 
         const splitPosition = node.minCorner[axis] + extent[axis] / 2;
 
@@ -67,12 +74,12 @@ export class BVH {
         let j = i + node.primitiveCount - 1;
 
         while (i <= j) {
-            if (triangles[triangleIndices[i]].get_centroid()[axis] < splitPosition) {
+            if (voxels[voxelIndices[i]].position[axis] < splitPosition) {
                 i += 1;
             } else {
-                const temp = triangleIndices[i];
-                triangleIndices[i] = triangleIndices[j];
-                triangleIndices[j] = temp;
+                const temp = voxelIndices[i];
+                voxelIndices[i] = voxelIndices[j];
+                voxelIndices[j] = temp;
                 j -= 1;
             }
         }
@@ -96,9 +103,9 @@ export class BVH {
         node.leftChild = leftChildIndex;
         node.primitiveCount = 0;
 
-        this.updateBounds(leftChildIndex, triangles, triangleIndices);
-        this.updateBounds(rightChildIndex, triangles, triangleIndices);
-        this.subdivide(leftChildIndex, triangles, triangleIndices);
-        this.subdivide(rightChildIndex, triangles, triangleIndices);
+        this.updateBounds(leftChildIndex, voxels, voxelIndices);
+        this.updateBounds(rightChildIndex, voxels, voxelIndices);
+        this.subdivide(leftChildIndex, voxels, voxelIndices);
+        this.subdivide(rightChildIndex, voxels, voxelIndices);
     }
 }
