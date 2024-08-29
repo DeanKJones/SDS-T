@@ -15,7 +15,7 @@
     "node": "^17.7.2",
     "ts-loader": "^9.2.9",
     "ts-shader-loader": "^1.0.6",
-    "typescript": "^5.5.3",
+    "typescript": "^5.5.4",
     "vite": "^5.4.0",
     "webgpu": "^0.1.16",
     "webpack": "^5.72.0",

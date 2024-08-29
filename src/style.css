@@ -13,11 +13,9 @@
 
 body {
   margin: 0;
+  padding: 2;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  min-width: 320px;
-  min-height: 100vh;
   background-color: #121212;
   color: #ffffff;
 }
@@ -25,14 +23,14 @@ body {
 #container {
   display: flex;
   flex-direction: column;
-  align-items: center;
   width: 100%;
+  height: 100%;
 }
 
 #canvas-container {
   display: flex;
   width: 100%;
-  height: 800px;
+  flex: 1;
 }
 
 canvas {
@@ -40,16 +38,16 @@ canvas {
 }
 
 #gfx-main {
-  flex: 1;
+  flex: 3;
 }
 
 #scene-params {
-  width: 300px;
+  flex: 1;
 }
 
 #divider {
   width: 5px;
-  background-color: #444;
+  background-color: #4f85d6;
   cursor: ew-resize;
 }
 
