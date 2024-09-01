@@ -193,12 +193,14 @@ fn trace(ray: Ray) -> RenderState {
         
                 var newRenderState: RenderState = hitVoxel(
                     ray, 
-                    objects.voxels[u32(i + contents)]
+                    objects.voxels[u32(i + contents)],
+                    nearestHit
                 );
-
                 if (newRenderState.hit) {
-                    nearestHit = newRenderState.t;
-                    renderState = newRenderState;
+                    if (newRenderState.t < nearestHit) {
+                        nearestHit = newRenderState.t;
+                        renderState = newRenderState;
+                    }
                 }
             }
 
@@ -327,48 +329,69 @@ fn hit_triangle(ray: Ray, tri: Triangle, tMin: f32, tMax: f32, oldRenderState: R
     return renderState;
 }
 
-fn hitVoxel(ray: Ray, voxel: Voxel) -> RenderState {
+fn hitVoxel(ray: Ray, voxel: Voxel, currentDepth: f32) -> RenderState {
     let voxel_min = voxel.position;
     let voxel_max = voxel.position + vec3<f32>(1.0, 1.0, 1.0); // Assuming unit-sized voxels
-
-    let t1 = (voxel_min - ray.origin) / ray.direction;
-    let t2 = (voxel_max - ray.origin) / ray.direction;
-
-    let tmin = min(t1, t2);
-    let tmax = max(t1, t2);
-
-    let tNear = max(max(tmin.x, tmin.y), tmin.z);
-    let tFar = min(min(tmax.x, tmax.y), tmax.z);
 
     var renderState: RenderState;
     renderState.hit = false;
 
-    if (tNear < tFar && tFar > 0.0) {
-        renderState.hit = true;
-        renderState.t = tNear;
-        renderState.position = ray.origin + ray.direction * tNear;
+    let tNear = hit_aabb_voxel(ray, voxel_min, voxel_max);
+
+    if (tNear >= 0.0 && tNear < currentDepth) {
+        let intersectionPoint = ray.origin + ray.direction * tNear;
 
         // Calculate normal based on which face was hit
         let epsilon = 0.0001;
-        if (abs(renderState.position.x - voxel_min.x) < epsilon) {
-            renderState.normal = vec3<f32>(-1.0, 0.0, 0.0);
-        } else if (abs(renderState.position.x - voxel_max.x) < epsilon) {
-            renderState.normal = vec3<f32>(1.0, 0.0, 0.0);
-        } else if (abs(renderState.position.y - voxel_min.y) < epsilon) {
-            renderState.normal = vec3<f32>(0.0, -1.0, 0.0);
-        } else if (abs(renderState.position.y - voxel_max.y) < epsilon) {
-            renderState.normal = vec3<f32>(0.0, 1.0, 0.0);
-        } else if (abs(renderState.position.z - voxel_min.z) < epsilon) {
-            renderState.normal = vec3<f32>(0.0, 0.0, -1.0);
+        var normal: vec3<f32>;
+        if (abs(intersectionPoint.x - voxel_min.x) < epsilon) {
+            normal = vec3<f32>(-1.0, 0.0, 0.0);
+        } else if (abs(intersectionPoint.x - voxel_max.x) < epsilon) {
+            normal = vec3<f32>(1.0, 0.0, 0.0);
+        } else if (abs(intersectionPoint.y - voxel_min.y) < epsilon) {
+            normal = vec3<f32>(0.0, -1.0, 0.0);
+        } else if (abs(intersectionPoint.y - voxel_max.y) < epsilon) {
+            normal = vec3<f32>(0.0, 1.0, 0.0);
+        } else if (abs(intersectionPoint.z - voxel_min.z) < epsilon) {
+            normal = vec3<f32>(0.0, 0.0, -1.0);
         } else {
-            renderState.normal = vec3<f32>(0.0, 0.0, 1.0);
+            normal = vec3<f32>(0.0, 0.0, 1.0);
         }
 
-        renderState.colorIndex = voxel.colorIndex;
-        renderState.objectIndex = voxel.objectIndex;
-    }
+        // Backface culling
+        if (dot(normal, ray.direction) < 0.0) {
+            renderState.hit = true;
+            renderState.t = tNear;
+            renderState.position = intersectionPoint;
+            renderState.normal = normal;
+            renderState.objectIndex = voxel.objectIndex;
+            renderState.colorIndex = voxel.colorIndex;
 
+            // manage voxel color index
+            // I would like to pass a color pallet as an image texture. 
+            // Then reading each color index over the sampled pixel colors can save some space
+            // For now it's just red
+            renderState.color = vec3<f32>(1.0, 0.0, 0.0);
+        }
+    }
     return renderState;
+}
+
+fn hit_aabb_voxel(ray: Ray, minCorner: vec3<f32>, maxCorner: vec3<f32>) -> f32 {
+    var inverseDir: vec3<f32> = vec3(1.0) / ray.direction;
+    var t1: vec3<f32> = (minCorner - ray.origin) * inverseDir;
+    var t2: vec3<f32> = (maxCorner - ray.origin) * inverseDir;
+    var tMin: vec3<f32> = min(t1, t2);
+    var tMax: vec3<f32> = max(t1, t2);
+
+    let tNear = max(max(tMin.x, tMin.y), tMin.z);
+    let tFar = min(min(tMax.x, tMax.y), tMax.z);
+
+    if (tNear < tFar && tFar > 0.0) {
+        return tNear;
+    } else {
+        return -1.0; // No hit
+    }
 }
 
 fn hit_aabb(ray: Ray, node: Node) -> f32 {
