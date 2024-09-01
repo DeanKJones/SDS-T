@@ -46,4 +46,13 @@ export class Voxel {
             child.updateTransform();
         }
     }
+
+    transformVoxel(voxelIndex: number, transform: mat4) {
+        const voxel = this.voxels.subarray(voxelIndex * 4, voxelIndex * 4 + 4);
+        const position = vec3.fromValues(voxel[0], voxel[1], voxel[2]);
+        vec3.transformMat4(position, position, transform);
+        voxel[0] = position[0];
+        voxel[1] = position[1];
+        voxel[2] = position[2];
+    }
 }

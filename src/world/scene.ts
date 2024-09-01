@@ -1,7 +1,8 @@
 import { Camera } from "./camera";
 import { SceneData } from "./management/scene_data";
 import { BVH } from "./bvh/bvh";
-import { VoxImporter } from "./voxel/import";
+//import { VoxImporter } from "./voxel/import";
+import { createDefaultVoxel } from "./voxel/defaultVoxel";
 
 export class Scene {
     data: SceneData;
@@ -17,8 +18,18 @@ export class Scene {
 
     async initialize() {
 
-        const voxelObject1 = await VoxImporter.importVox("assets/models/deer.vox");
-        this.data.addVoxelObject(voxelObject1);
+        //const voxelObject1 = await VoxImporter.importVox("assets/models/deer.vox");
+        //this.data.addVoxelObject(voxelObject1);
+
+        const defaultVoxel = createDefaultVoxel();
+        this.data.addVoxelObject(defaultVoxel);
+
+        //const voxelObject2 = createDefaultVoxel();
+        //voxelObject2.transformVoxel(0, [1, 0, 0, 0, 
+        //                                0, 1, 0, 0, 
+        //                                0, 0, 1, 0, 
+        //                                3, 0, 0, 1]);
+        //this.data.addVoxelObject(voxelObject2);
 
         this.data.camera = new Camera([0, 3.0, 10.0], 180, 0);
 
