@@ -59,7 +59,7 @@ export class BVH {
     subdivide(nodeIndex: number, voxels: {position: vec3, colorIndex: number, objectIndex: number}[], voxelIndices: number[]) {
         const node: Node = this.data.nodes[nodeIndex];
 
-        if (node.primitiveCount <= 4) { // You can adjust this threshold
+        if (node.primitiveCount <= 1) { // You can adjust this threshold
             return;
         }
 
