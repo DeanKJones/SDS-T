@@ -29,8 +29,12 @@ body {
 
 #canvas-container {
   display: flex;
-  width: 100%;
   flex: 1;
+}
+
+#scene-container {
+  flex-direction: row;
+  flex: 2;
 }
 
 canvas {

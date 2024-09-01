@@ -293,4 +293,26 @@ export class Renderer {
             }
         );
     }
+
+    renderUI(ctx: CanvasRenderingContext2D) {
+        if (!ctx) return;
+    
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    
+        // Header style
+        ctx.font = 'bold 16px Arial';
+        ctx.fillStyle = 'white';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'left';
+    
+        // Scene Parameters Header
+        ctx.fillText('Render Parameters', 10, 10);
+    
+        // Regular text style
+        ctx.font = '12px Arial';
+
+        // Frame time
+        ctx.fillText(`Frame Time: ${this.frametime.toFixed(2)} ms`, 10, 60);
+
+    }
 }

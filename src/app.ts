@@ -73,6 +73,11 @@ export class App
         if (uiCameraInfoCtx) {
             this.scene.data.renderUI(uiCameraInfoCtx);
         }
+        const uiRenderInfoCtx = this.canvases.get("renderParameters")!.getContext('2d');
+        if (uiRenderInfoCtx) {
+            this.renderer.renderUI(uiRenderInfoCtx);
+        }
+
 
         // Request the next frame
         if (running) {
@@ -82,24 +87,25 @@ export class App
 
     handle_keypress(event: KeyboardEvent) {
         if (this.canvas_selected == false) return;
+        let moveSpeed = 0.05;
 
         if (event.code == "KeyW") {
-            this.forwards_amount = 0.02;
+            this.forwards_amount = moveSpeed;
         }
         if (event.code == "KeyS") {
-            this.forwards_amount = -0.02;
+            this.forwards_amount = -moveSpeed;
         }
         if (event.code == "KeyA") {
-            this.right_amount = -0.02;
+            this.right_amount = -moveSpeed;
         }
         if (event.code == "KeyD") {
-            this.right_amount = 0.02;
+            this.right_amount = moveSpeed;
         }
         if (event.code == "KeyE") {
-            this.up_amount = 0.02;
+            this.up_amount = moveSpeed;
         }
         if (event.code == "KeyQ") {
-            this.up_amount = -0.02;
+            this.up_amount = -moveSpeed;
         }
     }
 
