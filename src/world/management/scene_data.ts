@@ -1,38 +1,41 @@
 import { Camera } from "../camera";
 import { Node } from "../bvh/node";
-import { Voxel } from "../voxel/voxel";
+import { VoxelObject } from "../voxel/voxelObject";
 
 export class SceneData {
 
-    voxels: Voxel[];
-    voxelCount: number;
+    voxelObjects: VoxelObject[];
     voxelIndices: number[];
+
+    voxelCount: number;
+    sceneObjectCount: number;
 
     camera: Camera;
     nodes: Node[];
     nodesUsed: number;
 
     constructor() {
-        this.voxels = [];
-        this.voxelCount = 0;
+        this.voxelObjects = [];
         this.voxelIndices = [];
+
+        this.voxelCount = 0;
+        this.sceneObjectCount = 0;
+
         this.camera = new Camera([0, 0, 0], 0, 0);
         this.nodes = [];
         this.nodesUsed = 0;
     }
 
-    addVoxelObject(voxelObject: Voxel) {
-        this.voxels.push(voxelObject);
-        this.voxelCount += voxelObject.numberOfVoxels;
+    addVoxelObject(voxelObject: VoxelObject) {
+        this.voxelObjects.push(voxelObject);
+        this.sceneObjectCount = this.voxelObjects.length;
 
         // Here you would also update your BVH or other acceleration structures
     }
 
-    updateVoxelObjectTransforms() {
-        for (const voxelObject of this.voxels) {
-            if (!voxelObject.parent) {
-                voxelObject.updateTransform();
-            }
+    updateSceneDataTransforms() {
+        for (const voxelObject of this.voxelObjects) {
+            voxelObject.updateTransform();
         }
     }
 

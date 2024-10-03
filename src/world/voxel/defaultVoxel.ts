@@ -1,16 +1,23 @@
-import { vec3, vec4 } from "gl-matrix";
+import { vec4 } from "gl-matrix";
 import { Voxel } from "./voxel";
+import { VoxelObject } from "./voxelObject";
 
 
-export function createDefaultVoxel(): Voxel {
+export function createDefaultVoxel(): VoxelObject {
     const id = "default";
-    const voxels = new Uint8Array(27); // 3x3x3 voxel block
-    for (let i = 0; i < 27; i++) {
-        voxels[i] = 1; // Assign color index 1 to each voxel
+    const voxels: Voxel[] = [];
+
+    // Create 3x3x3 voxel block
+    for (let x = 0; x < 3; x++) {
+        for (let y = 0; y < 3; y++) {
+            for (let z = 0; z < 3; z++) {
+                voxels.push(new Voxel(x, y, z, 1)); // Assign color index 1 to each voxel
+            }
+        }
     }
-    const size = vec3.fromValues(3, 3, 3);
-    const numberOfVoxels = 27; // 3 * 3 * 3
+
+    const numberOfVoxels = voxels.length;
     const pallet = [vec4.fromValues(1, 1, 1, 1)]; // Default color white
 
-    return new Voxel(id, voxels, size, numberOfVoxels, pallet);
+    return new VoxelObject(id, voxels, numberOfVoxels, pallet);
 }

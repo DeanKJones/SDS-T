@@ -24,12 +24,12 @@ export class Scene {
         const defaultVoxel = createDefaultVoxel();
         this.data.addVoxelObject(defaultVoxel);
 
-        //const voxelObject2 = createDefaultVoxel();
-        //voxelObject2.transformVoxel(0, [1, 0, 0, 0, 
-        //                                0, 1, 0, 0, 
-        //                                0, 0, 1, 0, 
-        //                                3, 0, 0, 1]);
-        //this.data.addVoxelObject(voxelObject2);
+        const voxelObject2 = createDefaultVoxel();
+        voxelObject2.voxelTransform(0, [1, 0, 0, 0, 
+                                   0, 1, 0, 0, 
+                                   0, 0, 1, 0, 
+                                   3, 0, 0, 1]);
+        this.data.addVoxelObject(voxelObject2);
 
         this.data.camera = new Camera([0, 3.0, 10.0], 180, 0);
 
@@ -38,7 +38,7 @@ export class Scene {
     }
 
     update() {
-        this.data.updateVoxelObjectTransforms();
+        this.data.updateSceneDataTransforms();
         this.data.camera.calculateViewMatrix();
     }
 }

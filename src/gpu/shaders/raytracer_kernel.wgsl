@@ -1,4 +1,5 @@
 #include "pbr_sky.wgsl"
+#include "random.wgsl"
 
 var<private> TAU = 6.2831855;
 
@@ -387,13 +388,6 @@ fn hit_aabb(ray: Ray, node: Node) -> f32 {
     else {
         return t_min;
     }
-}
-
-fn random() -> f32 {
-    seed = seed * 747796404u + 2891336453u;
-    let word = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
-    let word2 = ((word >> 22u) ^ word) * 288805656u;
-    return f32((word2 >> 22u) ^ word2) * bitcast<f32>(0x2f800004u);
 }
 
 fn random_cos_weighted_hemisphere_direction(n: vec3<f32>) -> vec3<f32> {

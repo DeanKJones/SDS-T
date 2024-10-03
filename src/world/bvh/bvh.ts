@@ -10,17 +10,18 @@ export class BVH {
     }
 
     buildBVH() {
+        // I want to update this to loop over voxel svo bounding boxes, geometry bounding boxes and other types
         // Flatten all voxels from all voxel objects into a single array
         const allVoxels: {position: vec3, colorIndex: number, objectIndex: number}[] = [];
-        this.data.voxels.forEach((voxelObject, objectIndex) => {
+        this.data.voxelObjects.forEach((voxelObject, objectIndex) => {
             for (let i = 0; i < voxelObject.voxels.length; i += 4) {
                 allVoxels.push({
                     position: vec3.fromValues(
-                        voxelObject.voxels[i],
-                        voxelObject.voxels[i + 1],
-                        voxelObject.voxels[i + 2]
+                        voxelObject.voxels[i].x,
+                        voxelObject.voxels[i].y,
+                        voxelObject.voxels[i].z
                     ),
-                    colorIndex: voxelObject.voxels[i + 3],
+                    colorIndex: voxelObject.voxels[i].colorIndex,
                     objectIndex: objectIndex
                 });
             }
@@ -59,8 +60,8 @@ export class BVH {
     subdivide(nodeIndex: number, voxels: {position: vec3, colorIndex: number, objectIndex: number}[], voxelIndices: number[]) {
         const node: Node = this.data.nodes[nodeIndex];
 
-        if (node.primitiveCount <= 1) { // You can adjust this threshold
-            return;
+        if (node.primitiveCount <= 27) { // You can adjust this threshold
+            return;                     // I'm using 27 which effectively seperates the voxels by their svos
         }
 
         const extent: vec3 = vec3.subtract(vec3.create(), node.maxCorner, node.minCorner);
