@@ -6,7 +6,6 @@ export class BindGroupLayouts {
 
     ray_tracing_bind_group_layout!: GPUBindGroupLayout;
     screen_bind_group_layout!: GPUBindGroupLayout;
-    bvh_debug_bind_group_layout!: GPUBindGroupLayout;
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -78,29 +77,5 @@ export class BindGroupLayouts {
             ]
         });
         return this.screen_bind_group_layout;
-    }
-
-    createBVHDebugBindGroupLayout = () => {
-        this.bvh_debug_bind_group_layout = this.device.createBindGroupLayout({
-            label: "BVH Debug Bind Group Layout",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                    buffer: {
-                        type: "read-only-storage",
-                        hasDynamicOffset: false
-                    }
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                    buffer: {
-                        type: "uniform",
-                    }
-                },
-            ]
-        });
-        return this.bvh_debug_bind_group_layout;
     }
 }

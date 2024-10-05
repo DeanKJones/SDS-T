@@ -1,6 +1,6 @@
 
 import { Scene } from "../world/scene";
-import { RenderPass } from "./render_pass";
+import { RenderPass } from "./renderPass";
 import { SceneBufferDescription } from "./buffers/geometry/sceneBufferDescription";
 import { prepareScene } from "./gfx_scene";
 import { Pipelines } from "./pipeline";
@@ -176,109 +176,6 @@ export class Renderer {
         renderpass.draw(voxelCount, 1, 0, 0);
         
         renderpass.end();
-    
-        this.device.queue.submit([commandEncoder.finish()]);
-
-        this.device.queue.onSubmittedWorkDone().then(
-            () => {
-                let end: number = performance.now();
-                this.frametime = end - start;
-                let performanceLabel: HTMLElement =  <HTMLElement> document.getElementById("render-time");
-                if (performanceLabel) {
-                    performanceLabel.innerText = this.frametime.toString();
-                }
-            }
-        );
-    }   
-
-    renderBVHDebug = (nodes: Array<Node>, camera: Camera) => {
-
-        let start: number = performance.now();
-
-        const vertices = generateBVHLineVertices(nodes);
-        const maxDepth = Math.max(...vertices.filter((_, i) => i % 4 === 3));
-
-        // Create vertex buffer
-        const vertexBuffer = this.device.createBuffer({
-            size: vertices.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
-
-        // Create uniform buffer
-        const uniformBuffer = this.device.createBuffer({
-            size: 4 * 32 + 4, // mat4 + float
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-
-        // Create bind group layout and pipeline layout
-        const bindGroupLayout = this.device.createBindGroupLayout({
-            entries: [{
-                binding: 0,
-                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                buffer: { type: 'uniform' }
-            }]
-        });
-
-        const pipelineLayout = this.device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout]
-        });
-
-        // Create render pipeline
-        const pipeline = this.device.createRenderPipeline({
-            layout: pipelineLayout,
-            vertex: {
-                module: this.device.createShaderModule({ code: shaderCode }),
-                entryPoint: 'vertexMain',
-                buffers: [{
-                    arrayStride: 4 * 64, // vec3 + float
-                    attributes: [
-                        { shaderLocation: 0, offset: 0, format: 'float32x4' }, // position
-                        { shaderLocation: 1, offset: 4 * 8, format: 'float32x4' } // color  
-                    ]
-                }]
-            },
-            fragment: {
-                module: this.device.createShaderModule({ code: shaderCode }),
-                entryPoint: 'fragmentMain',
-                targets: [{ format: this.context.getCurrentTexture().format }]
-            },
-            primitive: {
-                topology: 'line-list'
-            }
-        });
-
-        // Create bind group
-        const bindGroup = this.device.createBindGroup({
-            layout: bindGroupLayout,
-            entries: [{
-                binding: 0,
-                resource: { buffer: uniformBuffer }
-            }]
-        });
-
-        // Update uniform buffer with new view-projection matrix and max depth
-        const viewProjectionMatrix = camera.viewMatrix; // Calculate this based on your camera
-        const uniformData = new Float32Array(16 + 1);
-        uniformData.set(viewProjectionMatrix);
-        uniformData[16] = maxDepth;
-        this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
-
-        const commandEncoder = this.device.createCommandEncoder();
-        const renderPass = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: this.context.getCurrentTexture().createView(),
-                loadOp: 'clear',
-                storeOp: 'store',
-                clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }
-            }]
-        });
-
-        renderPass.setPipeline(pipeline);
-        renderPass.setBindGroup(0, bindGroup);
-        renderPass.setVertexBuffer(0, vertexBuffer);
-        renderPass.draw(vertices.length / 4, 1, 0, 0);
-        renderPass.end();
 
         this.device.queue.submit([commandEncoder.finish()]);
 

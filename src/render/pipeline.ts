@@ -1,8 +1,7 @@
-import { RenderPass } from "./render_pass";
+import { RenderPass } from "./renderPass";
 
-import raytracer_kernel from "../gpu/shaders/raytracer_kernel.wgsl"
-import bvh_debug_shader from "../gpu/shaders/bvh_debug_shader.wgsl";
-import screen_shader from "../gpu/shaders/screen_shader.wgsl"
+import raytracer_kernel from "../gpu/rendering/raytracer_kernel.wgsl"
+import screen_shader from "../gpu/image/screen_shader.wgsl"
 
 import { BindGroupLayouts } from "./pipelineLayout";
 
@@ -14,8 +13,6 @@ export class Pipelines {
         
     ray_tracing_pipeline!: GPUComputePipeline;
     screen_pipeline!: GPURenderPipeline;
-    bvh_debug_pipeline!: GPURenderPipeline;
-
 
     constructor(device: GPUDevice, currentRenderPass: RenderPass) {
         this.device = device;
@@ -25,14 +22,8 @@ export class Pipelines {
 
     async initialize() {
         await this.createScreenPipeline();
+        await this.createRayTracingPipelines();
         
-        if (this.currentRenderPass === RenderPass.Default) {
-            await this.createRayTracingPipelines();
-        } else if (this.currentRenderPass === RenderPass.BVHDebug) {
-            await this.createBVHPipeline();
-        } else {
-            console.error("Invalid render pass");
-        }
     }
 
     createRayTracingPipelines = async () => {
@@ -87,41 +78,6 @@ export class Pipelines {
             primitive: {
                 topology: "triangle-list"
             }
-        });
-    }
-
-    
-    createBVHPipeline = async () => {
-        const bindGroupLayout = this.bindGroupLayouts.createBVHDebugBindGroupLayout();
-        const bvh_debug_pipeline_layout = this.device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout]
-        });
-        // Set the vertex and fragment shader 
-        const bvh_debug_shader_module = this.device.createShaderModule({
-            code: bvh_debug_shader,
-        });
-        this.bvh_debug_pipeline = this.device.createRenderPipeline({
-            label: "BVH Debug Pipeline",
-            layout: bvh_debug_pipeline_layout,
-            
-            vertex: {
-                module: bvh_debug_shader_module,
-                entryPoint: 'vertexMain',
-            },
-        
-            fragment: {
-                module: bvh_debug_shader_module,
-                entryPoint: 'fragmentMain',
-                targets: [
-                    {
-                        format: "bgra8unorm"
-                    }
-                ],
-            },
-        
-            primitive: {
-                topology: 'line-list',
-            },
         });
     }
 }
