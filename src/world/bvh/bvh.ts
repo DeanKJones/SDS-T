@@ -1,112 +1,102 @@
 import { vec3 } from "gl-matrix";
 import { Node } from "./node";
-import { SceneData } from "../management/scene_data";
+import { VoxelObject } from "../voxel/voxelObject";
 
 export class BVH {
-    data: SceneData;
+    nodes: Node[];
+    nodesUsed: number;
+    objectIndices: number[];
 
-    constructor(sceneData: SceneData) {
-        this.data = sceneData;
+    constructor() {
+        this.nodes = [];
+        this.nodesUsed = 0;
+        this.objectIndices = [];
     }
 
-    buildBVH() {
-        // I want to update this to loop over voxel svo bounding boxes, geometry bounding boxes and other types
-        // Flatten all voxels from all voxel objects into a single array
-        const allVoxels: {position: vec3, colorIndex: number, objectIndex: number}[] = [];
-        this.data.voxelObjects.forEach((voxelObject, objectIndex) => {
-            for (let i = 0; i < voxelObject.voxels.length; i += 4) {
-                allVoxels.push({
-                    position: vec3.fromValues(
-                        voxelObject.voxels[i].x,
-                        voxelObject.voxels[i].y,
-                        voxelObject.voxels[i].z
-                    ),
-                    colorIndex: voxelObject.voxels[i].colorIndex,
-                    objectIndex: objectIndex
-                });
-            }
-        });
+    buildBVH(objects: VoxelObject[]) {
+        this.objectIndices = Array.from({ length: objects.length }, (_, i) => i);
 
-        this.data.voxelCount = allVoxels.length;
-        this.data.voxelIndices = Array.from({ length: this.data.voxelCount }, (_, i) => i);
-
-        // Create nodes for the BVH
-        this.data.nodes = new Array(2 * this.data.voxelCount - 1);
-        for (let i = 0; i < 2 * this.data.voxelCount - 1; i++) {
-            this.data.nodes[i] = new Node();
+        // Initialize nodes
+        const totalNodes = 2 * objects.length - 1;
+        this.nodes = new Array(totalNodes);
+        for (let i = 0; i < totalNodes; i++) {
+            this.nodes[i] = new Node();
         }
 
-        const root: Node = this.data.nodes[0];
+        const root: Node = this.nodes[0];
         root.leftChild = 0;
-        root.primitiveCount = this.data.voxelCount;
-        this.data.nodesUsed = 1;
+        root.primitiveCount = objects.length;
+        root.objectIndex = -1;
+        this.nodesUsed = 1;
 
-        this.updateBounds(0, allVoxels, this.data.voxelIndices);
-        this.subdivide(0, allVoxels, this.data.voxelIndices);
+        this.updateBounds(0, objects, this.objectIndices);
+        this.subdivide(0, objects, this.objectIndices);
     }
 
-    updateBounds(nodeIndex: number, voxels: {position: vec3, colorIndex: number, objectIndex: number}[], voxelIndices: number[]) {
-        const node: Node = this.data.nodes[nodeIndex];
+    updateBounds(nodeIndex: number, objects: VoxelObject[], objectIndices: number[]) {
+        const node: Node = this.nodes[nodeIndex];
         node.minCorner = vec3.fromValues(Infinity, Infinity, Infinity);
         node.maxCorner = vec3.fromValues(-Infinity, -Infinity, -Infinity);
-
+    
         for (let i = 0; i < node.primitiveCount; i++) {
-            const voxel = voxels[voxelIndices[node.leftChild + i]];
-            vec3.min(node.minCorner, node.minCorner, voxel.position);
-            vec3.max(node.maxCorner, node.maxCorner, voxel.position);
+            const obj = objects[objectIndices[node.leftChild + i]];
+            vec3.min(node.minCorner, node.minCorner, obj.aabb.min);
+            vec3.max(node.maxCorner, node.maxCorner, obj.aabb.max);
+            node.objectIndex = objectIndices[node.leftChild + i];
         }
     }
 
-    subdivide(nodeIndex: number, voxels: {position: vec3, colorIndex: number, objectIndex: number}[], voxelIndices: number[]) {
-        const node: Node = this.data.nodes[nodeIndex];
-
-        if (node.primitiveCount <= 27) { // You can adjust this threshold
-            return;                     // I'm using 27 which effectively seperates the voxels by their svos
+    subdivide(nodeIndex: number, objects: VoxelObject[], objectIndices: number[]) {
+        const node: Node = this.nodes[nodeIndex];
+    
+        if (node.primitiveCount <= 1) { // Adjust threshold as needed
+            return;
         }
-
+    
         const extent: vec3 = vec3.subtract(vec3.create(), node.maxCorner, node.minCorner);
-        let axis = 0;
-        if (extent[1] > extent[axis]) axis = 1;
-        if (extent[2] > extent[axis]) axis = 2;
-
+        let axis = extent.indexOf(Math.max(...extent));
+    
         const splitPosition = node.minCorner[axis] + extent[axis] / 2;
-
+    
         let i = node.leftChild;
         let j = i + node.primitiveCount - 1;
-
+    
         while (i <= j) {
-            if (voxels[voxelIndices[i]].position[axis] < splitPosition) {
+            const obj = objects[objectIndices[i]];
+            const center = vec3.scale(
+                vec3.create(),
+                vec3.add(vec3.create(), obj.aabb.min, obj.aabb.max),
+                0.5
+            );
+    
+            if (center[axis] < splitPosition) {
                 i += 1;
             } else {
-                const temp = voxelIndices[i];
-                voxelIndices[i] = voxelIndices[j];
-                voxelIndices[j] = temp;
+                [objectIndices[i], objectIndices[j]] = [objectIndices[j], objectIndices[i]];
                 j -= 1;
             }
         }
-
+    
         const leftCount = i - node.leftChild;
         if (leftCount === 0 || leftCount === node.primitiveCount) {
             return;
         }
-
-        const leftChildIndex = this.data.nodesUsed;
-        this.data.nodesUsed += 1;
-        const rightChildIndex = this.data.nodesUsed;
-        this.data.nodesUsed += 1;
-
-        this.data.nodes[leftChildIndex].leftChild = node.leftChild;
-        this.data.nodes[leftChildIndex].primitiveCount = leftCount;
-
-        this.data.nodes[rightChildIndex].leftChild = i;
-        this.data.nodes[rightChildIndex].primitiveCount = node.primitiveCount - leftCount;
-
+    
+        const leftChildIndex = this.nodesUsed++;
+        const rightChildIndex = this.nodesUsed++;
+    
+        this.nodes[leftChildIndex].leftChild = node.leftChild;
+        this.nodes[leftChildIndex].primitiveCount = leftCount;
+    
+        this.nodes[rightChildIndex].leftChild = i;
+        this.nodes[rightChildIndex].primitiveCount = node.primitiveCount - leftCount;
+    
         node.leftChild = leftChildIndex;
         node.primitiveCount = 0;
-
-        this.updateBounds(leftChildIndex, voxels, voxelIndices);
-        this.updateBounds(rightChildIndex, voxels, voxelIndices);
-        this.subdivide(leftChildIndex, voxels, voxelIndices);
-        this.subdivide(rightChildIndex, voxels, voxelIndices);
+    
+        this.updateBounds(leftChildIndex, objects, objectIndices);
+        this.updateBounds(rightChildIndex, objects, objectIndices);
+        this.subdivide(leftChildIndex, objects, objectIndices);
+        this.subdivide(rightChildIndex, objects, objectIndices);
     }
 }
