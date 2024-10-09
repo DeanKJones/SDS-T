@@ -1,29 +1,31 @@
 import { Camera } from "../camera";
-import { Node } from "../bvh/node";
 import { VoxelObject } from "../voxel/voxelObject";
+import { BVH } from "../bvh/bvh";
 
 export class SceneData {
 
     voxelObjects: VoxelObject[];
     voxelIndices: number[];
 
-    voxelCount: number;
+    totalVoxelCount: number;
     sceneObjectCount: number;
+    sceneBVH: BVH;
 
     camera: Camera;
-    nodes: Node[];
-    nodesUsed: number;
 
     constructor() {
         this.voxelObjects = [];
         this.voxelIndices = [];
 
-        this.voxelCount = 0;
+        this.totalVoxelCount = 0;
         this.sceneObjectCount = 0;
+        this.sceneBVH = new BVH();
 
         this.camera = new Camera([0, 0, 0], 0, 0);
-        this.nodes = [];
-        this.nodesUsed = 0;
+    }
+
+    buildSceneBVH() {
+        this.sceneBVH.buildBVH(this.voxelObjects);
     }
 
     addVoxelObject(voxelObject: VoxelObject) {
@@ -37,6 +39,14 @@ export class SceneData {
         for (const voxelObject of this.voxelObjects) {
             voxelObject.updateTransform();
         }
+    }
+
+    getVoxelCount() {
+        this.totalVoxelCount = 0;
+        for (const voxelObject of this.voxelObjects) {
+            this.totalVoxelCount += voxelObject.voxels.length;
+        }
+        return this.totalVoxelCount;
     }
 
     renderUI(ctx: CanvasRenderingContext2D) {
@@ -57,7 +67,7 @@ export class SceneData {
         ctx.font = '12px Arial';
     
         // Scene Parameters 
-        ctx.fillText(`Nodes Used: ${this.nodesUsed}`, 10, 60);
+        ctx.fillText(`Nodes Used: ${this.sceneBVH.nodesUsed}`, 10, 60);
     
         // Convert Float32Array to regular array before using map
         const cameraPosition = Array.from(this.camera.position).map(coord => coord.toFixed(2)).join(', ');
