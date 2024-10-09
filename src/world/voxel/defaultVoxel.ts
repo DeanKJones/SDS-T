@@ -16,8 +16,7 @@ export function createDefaultVoxel(): VoxelObject {
         }
     }
 
-    const numberOfVoxels = voxels.length;
     const pallet = [vec4.fromValues(1, 1, 1, 1)]; // Default color white
 
-    return new VoxelObject(id, voxels, numberOfVoxels, pallet);
+    return new VoxelObject(id, voxels, pallet);
 }

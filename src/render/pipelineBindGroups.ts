@@ -1,7 +1,7 @@
 import { SceneBufferDescription } from "./buffers/geometry/sceneBufferDescription";
 import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
 import { BindGroupLayouts } from "./pipelineLayout";
-import { RenderPass } from "./render_pass";
+import { RenderPass } from "./renderPass";
 
 
 export class PipelineBindGroups {
@@ -28,14 +28,7 @@ export class PipelineBindGroups {
 
     async initialize() {
         await this.CreateScreenBindGroup();
-        
-        if (this.currentRenderPass === RenderPass.Default) {
-            await this.CreateRayTracingBindGroup();
-        } else if (this.currentRenderPass === RenderPass.BVHDebug) {
-            await this.CreateBVHDebugBindGroup();
-        } else {
-            console.error("Invalid render pass");
-        }
+        await this.CreateRayTracingBindGroup();
     }
 
     CreateRayTracingBindGroup = async () => {
@@ -58,19 +51,19 @@ export class PipelineBindGroups {
                 {
                     binding: 2,
                     resource: {
-                        buffer: this.sceneBuffers.voxelBuffer,
+                        buffer: this.sceneBuffers.objectBuffer,
                     }
                 },
                 {
                     binding: 3,
                     resource: {
-                        buffer: this.sceneBuffers.nodeBuffer,
+                        buffer: this.sceneBuffers.objectInfoBuffer,
                     }
                 },
                 {
                     binding: 4,
                     resource: {
-                        buffer: this.sceneBuffers.voxelIndexBuffer,
+                        buffer: this.sceneBuffers.bvhNodeBuffer,
                     }
                 },
             ]
@@ -91,29 +84,6 @@ export class PipelineBindGroups {
                 {
                     binding: 1,
                     resource: this.screenBuffers.color_buffer_view
-                }
-            ]
-        });
-    }
-
-    CreateBVHDebugBindGroup = async () => {
-        const bindGroupLayout = this.bindGroupLayouts.createBVHDebugBindGroupLayout();
-
-        this.bvh_debug_bind_group = this.device.createBindGroup({
-            label: "BVH Debug Bind Group",
-            layout: bindGroupLayout,
-            entries: [
-                {
-                    binding: 0,
-                    resource: {
-                        buffer: this.sceneBuffers.nodeBuffer,
-                    } 
-                },
-                {
-                    binding: 1,
-                    resource: {
-                        buffer: this.sceneBuffers.uniformBuffer,
-                    }
                 }
             ]
         });

@@ -6,10 +6,6 @@ import { prepareScene } from "./gfx_scene";
 import { Pipelines } from "./pipeline";
 import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
 import { PipelineBindGroups } from "./pipelineBindGroups";
-import { generateBVHLineVertices } from "./debugging/BVHDebugRenderHelpers";
-import shaderCode from "../gpu/shaders/bvh_debug_shader.wgsl";
-import { Node } from "../world/bvh/node";
-import { Camera } from "../world/camera";
 
 export class Renderer {
 
@@ -110,7 +106,11 @@ export class Renderer {
     }
 
     async setupScene(scene: Scene) {
-        this.createSceneBuffers(scene.data.voxelCount, scene.data.nodesUsed);
+        const voxelCount = scene.data.getVoxelCount();
+        const objectCount = scene.data.sceneObjectCount;
+        const nodesUsed = scene.data.sceneBVH.nodesUsed;
+
+        this.createSceneBuffers(voxelCount, objectCount, nodesUsed);
         this.pipelineBindGroups = new PipelineBindGroups(this.device, 
             this.currentRenderPass, 
             this.screenBuffers, 
@@ -118,8 +118,14 @@ export class Renderer {
         await this.pipelineBindGroups.initialize();
     }
 
-    createSceneBuffers(voxelCount: number, nodesUsed: number) {
-        this.sceneBuffers = new SceneBufferDescription(this.device, voxelCount, nodesUsed);
+    createSceneBuffers(voxelCount: number, objectCount:number, nodesUsed: number) {
+        const objectBufferSize = 8 * 4 * voxelCount;
+        const objectInfoBufferSize = 8 * 2 * objectCount;
+        const bvhNodeBufferSize = 48 * nodesUsed;
+        this.sceneBuffers = new SceneBufferDescription(this.device, 
+                                                    objectBufferSize,
+                                                    objectInfoBufferSize, 
+                                                    bvhNodeBufferSize);
     }
 
     createScreenBuffers() {
@@ -128,7 +134,9 @@ export class Renderer {
     
     render(scene: Scene) {
         if (!this.sceneBuffers) {
-            this.createSceneBuffers(scene.data.voxelCount, scene.data.nodesUsed);
+            this.createSceneBuffers(scene.data.totalVoxelCount, 
+                                    scene.data.sceneObjectCount, 
+                                    scene.data.sceneBVH.nodesUsed);
         }
         const gfx_scene_instance = {
             scene: scene,
@@ -139,11 +147,7 @@ export class Renderer {
 
         switch (this.currentRenderPass) {
             case RenderPass.Default:
-                this.renderDefault(gfx_scene_instance.scene.data.voxelCount);
-                break;
-            case RenderPass.BVHDebug:
-                this.renderBVHDebug(gfx_scene_instance.scene.data.nodes, gfx_scene_instance.scene.data.camera);
-                break;
+                this.renderDefault(gfx_scene_instance.scene.data.totalVoxelCount);
         }
     }
 
@@ -155,10 +159,13 @@ export class Renderer {
         const ray_trace_pass : GPUComputePassEncoder = commandEncoder.beginComputePass();
         ray_trace_pass.setPipeline(this.renderPipeline.ray_tracing_pipeline);
         ray_trace_pass.setBindGroup(0, this.pipelineBindGroups.ray_tracing_bind_group);
-        ray_trace_pass.dispatchWorkgroups(
-            this.canvas.width, 
-            this.canvas.height, 1
-        );
+
+        const workgroupSizeX = 8;
+        const workgroupSizeY = 8;
+        const numWorkgroupsX = Math.ceil(this.canvas.width / workgroupSizeX);
+        const numWorkgroupsY = Math.ceil(this.canvas.height / workgroupSizeY);
+
+        ray_trace_pass.dispatchWorkgroups(numWorkgroupsX, numWorkgroupsY);
         ray_trace_pass.end();
 
         const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
@@ -176,7 +183,7 @@ export class Renderer {
         renderpass.draw(voxelCount, 1, 0, 0);
         
         renderpass.end();
-
+    
         this.device.queue.submit([commandEncoder.finish()]);
 
         this.device.queue.onSubmittedWorkDone().then(
@@ -189,7 +196,7 @@ export class Renderer {
                 }
             }
         );
-    }
+    }   
 
     renderUI(ctx: CanvasRenderingContext2D) {
         if (!ctx) return;

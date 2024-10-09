@@ -1,38 +1,40 @@
 export class SceneBufferDescription {
 
-    voxelBuffer: GPUBuffer;
-    voxelIndexBuffer: GPUBuffer;
-    nodeBuffer: GPUBuffer;
+    objectBuffer: GPUBuffer;
+    objectInfoBuffer: GPUBuffer;
+    bvhNodeBuffer: GPUBuffer;
     sceneParameters: GPUBuffer;
-    uniformBuffer: GPUBuffer;
 
-    constructor(device: GPUDevice, voxelCount: number, nodesUsed: number) {
-        this.voxelBuffer = device.createBuffer({
-            label: "Voxel Buffer",
-            size: 8 * 4 * voxelCount,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
+    constructor(device: GPUDevice, 
+                objectBufferSize: number, 
+                objectInfoBufferSize:number, 
+                bvhNodeBufferSize: number) {
 
-        this.voxelIndexBuffer = device.createBuffer({
-            label: "Voxel Index Buffer",
-            size: 4 * voxelCount,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        });
-
-        this.nodeBuffer = device.createBuffer({
-            label: "Node Buffer",
-            size: 32 * nodesUsed,
+        // Object Buffer to store compacted scene object data
+        this.objectBuffer = device.createBuffer({
+            label: "Object Buffer",
+            size: objectBufferSize,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
-        this.sceneParameters = device.createBuffer({
-            label: "Scene Parameters Buffer",
-            size: 64,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        // Object Info Buffer to store compacted scene object
+        this.objectInfoBuffer = device.createBuffer({
+            label: "Object Info Buffer",
+            size: objectInfoBufferSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
-        this.uniformBuffer = device.createBuffer({
-            size: 4 * 16 + 4, // mat4 + float
+        // BVH Node Buffer to store compacted BVH node data
+        this.bvhNodeBuffer = device.createBuffer({
+            label: "BVH Node Buffer",
+            size: bvhNodeBufferSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+
+        // Scene Parameters Buffer (e.g., camera parameters)
+        this.sceneParameters = device.createBuffer({
+            label: "Scene Parameters Buffer",
+            size: 64, // Adjust size as needed
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
     }

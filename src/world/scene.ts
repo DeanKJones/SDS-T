@@ -1,6 +1,5 @@
 import { Camera } from "./camera";
-import { SceneData } from "./management/scene_data";
-import { BVH } from "./bvh/bvh";
+import { SceneData } from "./management/sceneData";
 //import { VoxImporter } from "./voxel/import";
 import { createDefaultVoxel } from "./voxel/defaultVoxel";
 
@@ -25,16 +24,18 @@ export class Scene {
         this.data.addVoxelObject(defaultVoxel);
 
         const voxelObject2 = createDefaultVoxel();
-        voxelObject2.voxelTransform(0, [1, 0, 0, 0, 
-                                   0, 1, 0, 0, 
-                                   0, 0, 1, 0, 
-                                   3, 0, 0, 1]);
+        voxelObject2.updateTransform([1, 0, 0, 0, 
+                                      0, 1, 0, 0, 
+                                      0, 0, 1, 0, 
+                                      3, 1, 0, 1]);
         this.data.addVoxelObject(voxelObject2);
 
         this.data.camera = new Camera([0, 3.0, 10.0], 180, 0);
 
-        new BVH(this.data).buildBVH();
+        this.data.buildSceneBVH();
         console.log("BVH build completed.");
+
+        this.update();
     }
 
     update() {
