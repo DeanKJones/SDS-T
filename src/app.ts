@@ -7,9 +7,11 @@ export class App
     renderer!: Renderer;
     scene!: Scene;
 
-    forwards_amount: number = 0;
-    right_amount: number = 0;
-    up_amount: number = 0;
+    forwardsAmount: number = 0;
+    rightAmount: number = 0;
+    upAmount: number = 0;
+
+    moveSpeed: number = 0.25;
 
     canvas_selected: boolean = false;
     
@@ -29,6 +31,7 @@ export class App
 
         document.addEventListener('keydown', this.handle_keypress.bind(this));
         document.addEventListener('keyup', this.handle_keyrelease.bind(this));
+        document.addEventListener('wheel', this.handle_wheel.bind(this));
     
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement !== this.canvases.get("viewportMain")) {
@@ -59,9 +62,9 @@ export class App
         this.scene.update();
 
         for (let i = 0; i < 3; i++) {   // Here we are looping each axis as the move method is wack
-            if (i == 0) this.scene.data.camera.move(i, this.right_amount);      // Right
-            if (i == 1) this.scene.data.camera.move(i, this.up_amount);         // Up
-            if (i == 2) this.scene.data.camera.move(i, this.forwards_amount);   // Forwards
+            if (i == 0) this.scene.data.camera.move(i, this.rightAmount);      // Right
+            if (i == 1) this.scene.data.camera.move(i, this.upAmount);         // Up
+            if (i == 2) this.scene.data.camera.move(i, this.forwardsAmount);   // Forwards
         }
 
         // Render Viewport
@@ -87,38 +90,37 @@ export class App
 
     handle_keypress(event: KeyboardEvent) {
         if (this.canvas_selected == false) return;
-        let moveSpeed = 0.05;
 
         if (event.code == "KeyW") {
-            this.forwards_amount = moveSpeed;
+            this.forwardsAmount = this.moveSpeed;
         }
         if (event.code == "KeyS") {
-            this.forwards_amount = -moveSpeed;
+            this.forwardsAmount = -this.moveSpeed;
         }
         if (event.code == "KeyA") {
-            this.right_amount = -moveSpeed;
+            this.rightAmount = -this.moveSpeed;
         }
         if (event.code == "KeyD") {
-            this.right_amount = moveSpeed;
+            this.rightAmount = this.moveSpeed;
         }
         if (event.code == "KeyE") {
-            this.up_amount = moveSpeed;
+            this.upAmount = this.moveSpeed;
         }
         if (event.code == "KeyQ") {
-            this.up_amount = -moveSpeed;
+            this.upAmount = -this.moveSpeed;
         }
     }
 
     handle_keyrelease(event: KeyboardEvent) {
         if (this.canvas_selected == false) return;
         if (event.code == "KeyW" || event.code == "KeyS") {
-            this.forwards_amount = 0;
+            this.forwardsAmount = 0;
         }
         if (event.code == "KeyA" || event.code == "KeyD") {
-            this.right_amount = 0;
+            this.rightAmount = 0;
         }
         if (event.code == "KeyE" || event.code == "KeyQ") {
-            this.up_amount = 0;
+            this.upAmount = 0;
         }
     }
 
@@ -126,5 +128,14 @@ export class App
         this.scene.data.camera.rotate(
             event.movementX / 5, event.movementY / 5
         );
+    }
+
+    handle_wheel(event: WheelEvent) {
+        if (this.canvas_selected == false) return;
+        if (event.deltaY < 0) {
+            this.moveSpeed += 0.025; // Increase speed
+        } else {
+            this.moveSpeed = Math.max(0.01, this.moveSpeed - 0.01); // Decrease speed but not below 0.01
+        }
     }
 }
