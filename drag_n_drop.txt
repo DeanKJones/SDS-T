@@ -1,0 +1,1863 @@
+import { vec3 } from "gl-matrix";
+import { Node } from "./node";
+import { VoxelObject } from "../voxel/voxelObject";
+
+export class BVH {
+    nodes: Node[];
+    nodesUsed: number;
+    objectIndices: number[];
+
+    constructor() {
+        this.nodes = [];
+        this.nodesUsed = 0;
+        this.objectIndices = [];
+    }
+
+    buildBVH(objects: VoxelObject[]) {
+        console.log("Starting BVH construction with", objects.length, "objects");
+        
+        this.objectIndices = Array.from({ length: objects.length }, (_, i) => i);
+
+        // Initialize nodes
+        const totalNodes = 2 * objects.length - 1;
+        this.nodes = new Array(totalNodes);
+        for (let i = 0; i < totalNodes; i++) {
+            this.nodes[i] = new Node();
+        }
+
+        // Initialize root
+        const root: Node = this.nodes[0];
+        this.nodesUsed = 1;  // Start with just root node
+
+        if (objects.length === 1) {
+            // Special case for single object
+            root.leftChild = 0;
+            root.primitiveCount = 1;
+            root.objectIndex = 0;
+            this.updateBounds(0, objects, this.objectIndices);
+            console.log("Created single-node BVH", {
+                bounds: {
+                    min: Array.from(root.minCorner),
+                    max: Array.from(root.maxCorner)
+                },
+                objectIndex: root.objectIndex
+            });
+            return;
+        }
+
+        // Multiple objects case
+        root.leftChild = 1;  // Next available node index
+        root.primitiveCount = objects.length;
+        root.objectIndex = -1;  // Not a leaf
+
+        this.updateBounds(0, objects, this.objectIndices);
+        this.subdivide(0, objects, this.objectIndices);
+
+        console.log("BVH Construction completed:", {
+            totalNodes: this.nodesUsed,
+            rootBounds: {
+                min: Array.from(root.minCorner),
+                max: Array.from(root.maxCorner)
+            }
+        });
+    }
+
+    updateBounds(nodeIndex: number, objects: VoxelObject[], objectIndices: number[]) {
+        const node: Node = this.nodes[nodeIndex];
+        node.minCorner = vec3.fromValues(Infinity, Infinity, Infinity);
+        node.maxCorner = vec3.fromValues(-Infinity, -Infinity, -Infinity);
+
+        for (let i = 0; i < node.primitiveCount; ++i) {
+            const objIndex = objectIndices[node.leftChild + i];
+            const obj = objects[objectIndices[node.leftChild + i]];     
+        
+            if (!obj || !obj.aabb) {
+                console.warn(`VoxelObject at index ${objIndex} is missing or missing aabb.`);
+                continue;
+            }
+
+            vec3.min(node.minCorner, node.minCorner, obj.aabb.min);
+            vec3.max(node.maxCorner, node.maxCorner, obj.aabb.max);
+
+            // Add debug logging
+            console.log(`Object ${i} AABB:`, {
+                min: Array.from(obj.aabb.min),
+                max: Array.from(obj.aabb.max)
+            });
+        } 
+
+        // Log final node bounds
+        console.log(`Node ${nodeIndex} final bounds:`, {
+            min: Array.from(node.minCorner),
+            max: Array.from(node.maxCorner)
+        });
+    }
+
+    subdivide(nodeIndex: number, objects: VoxelObject[], objectIndices: number[]) {
+        const node: Node = this.nodes[nodeIndex];
+        
+        console.log(`Subdividing node ${nodeIndex}:`, {
+            primitiveCount: node.primitiveCount,
+            leftChild: node.leftChild,
+            objectIndex: node.objectIndex
+        });
+
+        // Base case - create leaf
+        if (node.primitiveCount <= 1) {
+            node.objectIndex = objectIndices[node.leftChild];
+            console.log(`Created leaf node ${nodeIndex} with object ${node.objectIndex}`);
+            return;
+        }
+
+        // Find split axis and position
+        const extent: vec3 = vec3.subtract(vec3.create(), node.maxCorner, node.minCorner);
+        const axis = extent.indexOf(Math.max(...extent));
+        const splitPosition = node.minCorner[axis] + extent[axis] / 2;
+
+        // Partition objects
+        let startIndex = node.leftChild;
+        let endIndex = startIndex + node.primitiveCount - 1;
+        let splitIndex = startIndex;
+
+        while (splitIndex <= endIndex) {
+            const obj = objects[objectIndices[splitIndex]];
+            const center = vec3.scale(
+                vec3.create(),
+                vec3.add(vec3.create(), obj.aabb.min, obj.aabb.max),
+                0.5
+            );
+
+            if (center[axis] < splitPosition) {
+                splitIndex++;
+            } else {
+                [objectIndices[splitIndex], objectIndices[endIndex]] = 
+                [objectIndices[endIndex], objectIndices[splitIndex]];
+                endIndex--;
+            }
+        }
+
+        const leftCount = splitIndex - startIndex;
+        
+        // Check if split was successful
+        if (leftCount === 0 || leftCount === node.primitiveCount) {
+            // Couldn't split - make leaf node
+            node.objectIndex = objectIndices[node.leftChild];
+            console.log(`Created forced leaf node ${nodeIndex} with object ${node.objectIndex}`);
+            return;
+        }
+
+        // Create child nodes
+        const leftChildIndex = this.nodesUsed++;
+        const rightChildIndex = this.nodesUsed++;
+
+        // Set up left child
+        this.nodes[leftChildIndex].leftChild = startIndex;
+        this.nodes[leftChildIndex].primitiveCount = leftCount;
+        this.nodes[leftChildIndex].objectIndex = -1;
+
+        // Set up right child
+        this.nodes[rightChildIndex].leftChild = splitIndex;
+        this.nodes[rightChildIndex].primitiveCount = node.primitiveCount - leftCount;
+        this.nodes[rightChildIndex].objectIndex = -1;
+
+        // Update parent
+        node.leftChild = leftChildIndex;
+        node.primitiveCount = 0;
+        node.objectIndex = -1;
+
+        console.log(`Created internal node ${nodeIndex} with children ${leftChildIndex}, ${rightChildIndex}`);
+
+        // Process children
+        this.updateBounds(leftChildIndex, objects, objectIndices);
+        this.updateBounds(rightChildIndex, objects, objectIndices);
+        
+        this.subdivide(leftChildIndex, objects, objectIndices);
+        this.subdivide(rightChildIndex, objects, objectIndices);
+    }
+}
+
+
+import { Camera } from "../camera";
+import { VoxelObject } from "../voxel/voxelObject";
+import { BVH } from "../bvh/bvh";
+
+export class SceneData {
+
+    voxelObjects: VoxelObject[];
+    totalVoxelCount: number;
+    sceneObjectCount: number;
+    sceneBVH: BVH;
+
+    camera: Camera;
+
+    constructor() {
+        this.voxelObjects = [];
+
+        this.totalVoxelCount = 0;
+        this.sceneObjectCount = 0;
+        this.sceneBVH = new BVH();
+
+        this.camera = new Camera([0, 0, 0], 0, 0);
+    }
+
+    buildSceneBVH() {
+        this.sceneBVH.buildBVH(this.voxelObjects);
+    }
+
+    addVoxelObject(voxelObject: VoxelObject) {
+        this.voxelObjects.push(voxelObject);
+        this.sceneObjectCount += this.voxelObjects.length;
+        // Ensure triangles are generated
+        voxelObject.generateTriangles();
+        // Can update during runtime bvh
+    }
+
+    updateSceneDataTransforms() {
+        for (const voxelObject of this.voxelObjects) {
+            voxelObject.updateTransform();
+        }
+    }
+
+    getVoxelCount() {
+        this.totalVoxelCount = 0;
+        for (const voxelObject of this.voxelObjects) {
+            this.totalVoxelCount += voxelObject.voxels.length;
+        }
+        return this.totalVoxelCount;
+    }
+
+    renderUI(ctx: CanvasRenderingContext2D) {
+        if (!ctx) return;
+    
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    
+        // Header style
+        ctx.font = 'bold 16px Arial';
+        ctx.fillStyle = 'white';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'left';
+    
+        // Scene Parameters Header
+        ctx.fillText('Scene Parameters', 10, 10);
+    
+        // Regular text style
+        ctx.font = '12px Arial';
+    
+        // Scene Parameters 
+        ctx.fillText(`Nodes Used: ${this.sceneBVH.nodesUsed}`, 10, 60);
+    
+        // Convert Float32Array to regular array before using map
+        const cameraPosition = Array.from(this.camera.position).map(coord => coord.toFixed(2)).join(', ');
+        const cameraOrientation = Array.from(this.camera.orientation).map(coord => coord.toFixed(2)).join(', ');
+        const cameraForward = Array.from(this.camera.forwards).map(coord => coord.toFixed(2)).join(', ');
+    
+        // Camera Parameters Header
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText('Camera Parameters', 10, 90);
+    
+        // Regular text style
+        ctx.font = '12px Arial';
+    
+        // Camera Parameters
+        ctx.fillText(`Position: ${cameraPosition}`, 10, 120);
+        ctx.fillText(`Orientation: ${cameraOrientation}`, 10, 140);
+        ctx.fillText(`Forward: ${cameraForward}`, 10, 160);
+    }
+}
+
+
+
+#include "./pbr_sky.wgsl"
+#include "./trace_scene.wgsl"
+#include "../math/random.wgsl"
+
+#include "./intersection/sphere_intersection.wgsl"
+#include "./intersection/triangle_intersection.wgsl"
+#include "./intersection/voxel_intersection.wgsl"
+
+var<private> TAU = 6.2831855;
+
+struct Sphere {
+    center: vec3<f32>,
+    color: vec3<f32>,
+    radius: f32,
+}
+
+struct Triangle {
+    corner_a: vec3<f32>,
+    //float
+    corner_b: vec3<f32>,
+    //float
+    corner_c: vec3<f32>,
+    //float
+    color: vec3<f32>,
+    //float
+    isLambert: u32,
+}
+
+struct Voxel {
+    position: vec3<f32>,     // 12 bytes + 4 bytes padding = 16 bytes
+    colorIndex: u32,         // 4 bytes
+    objectIndex: u32,        // 4 bytes
+    objectVoxelCount: u32,   // 4 bytes
+    padding: u32,            // 4 bytes (to make total size 32 bytes)
+    triangles: array<Triangle>, // New field for triangles
+}
+
+struct ObjectData {
+    voxels: array<Voxel>,
+}
+
+struct ObjectInfo {
+    voxelOffset: u32,   // 4 bytes
+    voxelCount: u32,    // 4 bytes
+    padding1: u32,      // 4 bytes
+    padding2: u32,      // 4 bytes
+}
+
+struct Node {
+    minCorner: vec3<f32>,   // 12 bytes + 4 bytes padding = 16 bytes
+    maxCorner: vec3<f32>,   // 12 bytes + 4 bytes padding = 16 bytes
+    leftChild: u32,         // 4 bytes
+    primitiveCount: u32,    // 4 bytes
+    objectIndex: i32,       // 4 bytes
+    padding: u32,           // 4 bytes
+}
+
+struct BVH {
+    nodes: array<Node>,
+}
+
+struct ObjectIndices {
+    primitiveIndices: array<u32>,
+}
+
+struct Ray {
+    direction: vec3<f32>,
+    origin: vec3<f32>,
+}
+
+struct SceneParameters {
+    cameraPos: vec3<f32>,
+    cameraForwards: vec3<f32>,
+    cameraRight: vec3<f32>,
+    maxBounces: f32,
+    cameraUp: vec3<f32>,
+}
+
+struct RenderState {
+    t: f32,
+    color: vec3<f32>,
+    hit: bool,
+    position: vec3<f32>,
+    normal: vec3<f32>,
+    colorIndex: u32,
+    objectIndex: u32,
+}
+
+struct seed_t {
+    v: vec3<i32>,
+}
+
+
+@group(0) @binding(0) var colorBuffer: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var<uniform> sceneParameterBuffer: SceneParameters;
+@group(0) @binding(2) var<storage, read> objectBuffer: ObjectData;
+@group(0) @binding(3) var<storage, read> objectInfoBuffer: array<ObjectInfo>;
+@group(0) @binding(4) var<storage, read> bvhNodeBuffer: BVH;
+
+var<private> seed: u32 = 42069u;
+
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
+
+    let screen_size: vec2<u32> = vec2<u32>(textureDimensions(colorBuffer));
+
+    let x = GlobalInvocationID.x;
+    let y = GlobalInvocationID.y;
+
+    if (x >= screen_size.x || y >= screen_size.y) {
+        return;
+    }
+    let screen_pos: vec2<u32> = vec2<u32>(x, y);
+
+    let horizontal_coefficient: f32 = (f32(screen_pos.x) - f32(screen_size.x) / 2) / f32(screen_size.x);
+    let vertical_coefficient: f32 = (f32(screen_pos.y) - f32(screen_size.y) / 2) / f32(screen_size.x);
+
+    let forwards: vec3<f32> = sceneParameterBuffer.cameraForwards;
+    let right: vec3<f32> = sceneParameterBuffer.cameraRight;
+    let up: vec3<f32> = sceneParameterBuffer.cameraUp;
+
+    var myRay: Ray;
+    myRay.direction = normalize(forwards + horizontal_coefficient * right + vertical_coefficient * up);
+    myRay.origin = sceneParameterBuffer.cameraPos;
+
+    let pixel_color : vec3<f32> = rayColor(myRay);
+
+    textureStore(colorBuffer, screen_pos, vec4<f32>(pixel_color, 1.0));
+}
+
+
+fn rayColor(ray: Ray) -> vec3<f32> {
+
+    var color: vec3<f32> = vec3(1.0, 1.0, 1.0);
+    var result: RenderState;
+
+    var temp_ray: Ray;
+    temp_ray.origin = ray.origin;
+    temp_ray.direction = ray.direction;
+
+    let bounces: u32 = u32(sceneParameterBuffer.maxBounces);
+    for(var bounce: u32 = 0; bounce < bounces; bounce++) {
+
+        result = trace_DEBUG_BVH(temp_ray); // debugging trace function used to visualize BVH traversal
+
+        //unpack color
+        color = color * result.color;
+
+        //early exit
+        if (!result.hit) {
+            break;
+        }
+
+        //Set up for next trace
+        temp_ray.origin = result.position;
+        temp_ray.direction = normalize(reflect(temp_ray.direction, result.normal));
+    }
+
+    //Rays which reached terminal state and bounced indefinitely
+    if (result.hit) {
+        color = result.color;
+    }
+
+    return color;
+}
+
+// Modify trace_DEBUG_BVH to handle triangle intersections
+fn trace_DEBUG_BVH(ray: Ray) -> RenderState {
+    var result: RenderState;
+    // ...existing code...
+    // Loop through triangles in the voxel and check for intersections
+    // ...existing code...
+    return result;
+}
+
+import { mat4, vec3, quat } from 'gl-matrix';
+
+export class Transform {
+    private position: vec3;
+    private rotation: quat;
+    private scale: vec3;
+    private matrix: mat4;
+    private isDirty: boolean;
+
+    constructor() {
+        this.position = vec3.fromValues(0, 0, 0);
+        this.rotation = quat.create();
+        this.scale = vec3.fromValues(1, 1, 1);
+        this.matrix = mat4.create();
+        this.isDirty = true;
+    }
+
+    getMatrix(): mat4 {
+        if (this.isDirty) {
+            this.updateMatrix();
+        }
+        return this.matrix;
+    }
+
+    private updateMatrix() {
+        mat4.fromRotationTranslationScale(
+            this.matrix,
+            this.rotation,
+            this.position,
+            this.scale
+        );
+        this.isDirty = false;
+    }
+
+    setPosition(x: number, y: number, z: number) {
+        vec3.set(this.position, x, y, z);
+        this.isDirty = true;
+    }
+
+    setRotationEuler(x: number, y: number, z: number) {
+        quat.fromEuler(this.rotation, x, y, z);
+        this.isDirty = true;
+    }
+
+    setScale(x: number, y: number, z: number) {
+        vec3.set(this.scale, x, y, z);
+        this.isDirty = true;
+    }
+
+    translate(x: number, y: number, z: number) {
+        vec3.add(this.position, this.position, vec3.fromValues(x, y, z));
+        this.isDirty = true;
+    }
+
+    rotate(angleInDegrees: number, axis: vec3) {
+        const angleInRadians = angleInDegrees * Math.PI / 180;
+        const rotationQuat = quat.create();
+        quat.setAxisAngle(rotationQuat, axis, angleInRadians);
+        quat.multiply(this.rotation, this.rotation, rotationQuat);
+        this.isDirty = true;
+    }
+
+    getPosition(): vec3 {
+        return vec3.clone(this.position);
+    }
+
+    getRotation(): quat {
+        return quat.clone(this.rotation);
+    }
+
+    getScale(): vec3 {
+        return vec3.clone(this.scale);
+    }
+}
+
+
+import { Camera } from "./camera";
+import { SceneData } from "./management/sceneData";
+//import { VoxImporter } from "./voxel/import";
+import { createDefaultVoxel } from "./voxel/defaultVoxel";
+
+export class Scene {
+    data: SceneData;
+
+    private constructor() {
+        this.data = new SceneData();
+    }
+
+    static async create(): Promise<Scene> {
+        const scene = new Scene();
+        return scene;
+    }
+
+    async initialize() {
+
+        //const voxelObject1 = await VoxImporter.importVox("assets/models/deer.vox");
+        //this.data.addVoxelObject(voxelObject1);
+
+        const defaultVoxel_1 = createDefaultVoxel();
+        defaultVoxel_1.setPosition(0, 0, 0);
+        defaultVoxel_1.translate(0, 5, 0);
+        defaultVoxel_1.generateTriangles(); // Generate triangles
+        this.data.addVoxelObject(defaultVoxel_1);
+
+        const defaultVoxel_2 = createDefaultVoxel();
+        defaultVoxel_2.setPosition(0, 0, 0);
+        defaultVoxel_2.translate(3, 1, 3);
+        defaultVoxel_2.generateTriangles(); // Generate triangles
+        this.data.addVoxelObject(defaultVoxel_2);
+
+        const defaultVoxel3 = createDefaultVoxel();
+        defaultVoxel3.setPosition(0, 0, 0);
+        defaultVoxel3.translate(-3, -1, -3);
+        defaultVoxel3.generateTriangles(); // Generate triangles
+        this.data.addVoxelObject(defaultVoxel3);
+
+        this.data.camera = new Camera([1.5, 1.5, 5.0], 180, 0);
+
+        this.update();
+        this.data.buildSceneBVH();
+    }
+
+    update() {
+        this.data.updateSceneDataTransforms();
+        this.data.camera.calculateViewMatrix();
+    }
+}
+
+
+import { vec3, mat4 } from "gl-matrix";
+import { Deg2Rad } from "../../math/deg_to_rad";
+
+export class Triangle {
+
+    position: vec3;
+    eulers: vec3;
+    model!: mat4;
+    color: vec3;
+    vertices: vec3[];
+    isLambert: boolean;
+
+    constructor(v1: vec3, v2: vec3, v3: vec3, color: vec3, isLambert?: boolean) {
+        this.vertices = [v1, v2, v3];
+        this.position = this.get_centroid();
+        this.eulers = vec3.create();
+        this.color = color;
+        this.isLambert = isLambert || true;
+    }
+
+    update() {
+        this.eulers[2] += 1;
+        this.eulers[2] %= 360;
+
+        this.model = mat4.create();
+        mat4.translate(this.model, this.model, this.position);
+        mat4.rotateZ(this.model, this.model, Deg2Rad(this.eulers[2]));
+    }
+
+    get_model(): mat4 {
+        return this.model;
+    }
+
+    get_centroid(): vec3 {
+        const centroid = vec3.create();
+        vec3.add(centroid, centroid, this.vertices[0]);
+        vec3.add(centroid, centroid, this.vertices[1]);
+        vec3.add(centroid, centroid, this.vertices[2]);
+        vec3.scale(centroid, centroid, 1 / 3);
+        return centroid;
+    }
+}
+
+
+import { vec3, vec4 } from 'gl-matrix';
+import { Voxel } from './voxel';
+import { AABB } from '../geometry/bounds/AABB';
+import { Transform } from '../../math/transform';
+import { Triangle } from '../geometry/triangle';
+
+export class VoxelObject {
+    id: string;
+    transform: Transform;
+    voxels: Voxel[];
+    aabb: AABB;
+    pallet: Array<vec4>;
+    voxelOffset: number;
+    private originalVoxelPositions: vec3[];
+
+    constructor(id: string, voxels: Voxel[], pallet: Array<vec4>) {
+        this.id = id;
+        this.voxels = voxels;
+        this.pallet = pallet;
+        this.voxelOffset = 0;
+        this.transform = new Transform();
+        
+        // Store original positions
+        this.originalVoxelPositions = voxels.map(voxel => 
+            vec3.clone(voxel.position)
+        );
+        
+        this.aabb = this.updateBounds();
+    }
+
+    updateTransform() {
+        const transformMatrix = this.transform.getMatrix();
+        
+        // Update each voxel position based on the transform
+        for (let i = 0; i < this.voxels.length; i++) {
+            const originalPos = this.originalVoxelPositions[i];
+            const newPos = vec3.create();
+            vec3.transformMat4(newPos, originalPos, transformMatrix);
+            
+            // Update voxel position
+            vec3.copy(this.voxels[i].position, newPos);
+        }
+        
+        // Update AABB after transform
+        this.updateBounds();
+    }
+
+    updateBounds() {
+        if (!this.aabb) {
+            this.aabb = {
+                min: vec3.create(),
+                max: vec3.create()
+            };
+        }
+
+        this.aabb.min = vec3.fromValues(Infinity, Infinity, Infinity);
+        this.aabb.max = vec3.fromValues(-Infinity, -Infinity, -Infinity);
+
+        const halfSize = 1.001; // Give a bit of clearance
+
+        for (const voxel of this.voxels) {
+            const position = voxel.position;
+
+            const minPosition = vec3.fromValues(
+                position[0] - halfSize,
+                position[1] - halfSize,
+                position[2] - halfSize
+            );
+
+            const maxPosition = vec3.fromValues(
+                position[0] + halfSize,
+                position[1] + halfSize,
+                position[2] + halfSize
+            );
+
+            vec3.min(this.aabb.min, this.aabb.min, minPosition);
+            vec3.max(this.aabb.max, this.aabb.max, maxPosition);
+        }
+
+        return this.aabb;
+    }
+
+    // Convenience methods for transformation
+    setPosition(x: number, y: number, z: number) {
+        this.transform.setPosition(x, y, z);
+        this.updateTransform();
+    }
+
+    setRotation(x: number, y: number, z: number) {
+        this.transform.setRotationEuler(x, y, z);
+        this.updateTransform();
+    }
+
+    setScale(x: number, y: number, z: number) {
+        this.transform.setScale(x, y, z);
+        this.updateTransform();
+    }
+
+    translate(x: number, y: number, z: number) {
+        this.transform.translate(x, y, z);
+        this.updateTransform();
+    }
+
+    rotate(angleInDegrees: number, axis: vec3) {
+        this.transform.rotate(angleInDegrees, axis);
+        this.updateTransform();
+    }
+
+    generateTriangles() {
+        for (const voxel of this.voxels) {
+            voxel.triangles = this.createCubeTriangles(voxel.position);
+        }
+    }
+
+    createCubeTriangles(position: vec3): Triangle[] {
+        // Generate triangles for a cube centered at the given position
+        const triangles: Triangle[] = [];
+        
+        const halfSize = 0.5;
+        const vertices = [
+            vec3.fromValues(position[0] - halfSize, position[1] - halfSize, position[2] - halfSize),
+            vec3.fromValues(position[0] + halfSize, position[1] - halfSize, position[2] - halfSize),
+            vec3.fromValues(position[0] + halfSize, position[1] + halfSize, position[2] - halfSize),
+            vec3.fromValues(position[0] - halfSize, position[1] + halfSize, position[2] - halfSize),
+            vec3.fromValues(position[0] - halfSize, position[1] - halfSize, position[2] + halfSize),
+            vec3.fromValues(position[0] + halfSize, position[1] - halfSize, position[2] + halfSize),
+            vec3.fromValues(position[0] + halfSize, position[1] + halfSize, position[2] + halfSize),
+            vec3.fromValues(position[0] - halfSize, position[1] + halfSize, position[2] + halfSize)
+        ];
+
+        const color = vec3.fromValues(1.0, 1.0, 1.0); // White color for the triangles
+
+        // Front face
+        triangles.push(new Triangle(vertices[0], vertices[1], vertices[2], color));
+        triangles.push(new Triangle(vertices[0], vertices[2], vertices[3], color));
+
+        // Back face
+        triangles.push(new Triangle(vertices[4], vertices[6], vertices[5], color));
+        triangles.push(new Triangle(vertices[4], vertices[7], vertices[6], color));
+
+        // Top face
+        triangles.push(new Triangle(vertices[3], vertices[2], vertices[6], color));
+        triangles.push(new Triangle(vertices[3], vertices[6], vertices[7], color));
+
+        // Bottom face
+        triangles.push(new Triangle(vertices[0], vertices[5], vertices[1], color));
+        triangles.push(new Triangle(vertices[0], vertices[4], vertices[5], color));
+
+        // Right face
+        triangles.push(new Triangle(vertices[1], vertices[5], vertices[6], color));
+        triangles.push(new Triangle(vertices[1], vertices[6], vertices[2], color));
+
+        // Left face
+        triangles.push(new Triangle(vertices[0], vertices[3], vertices[7], color));
+        triangles.push(new Triangle(vertices[0], vertices[7], vertices[4], color));
+
+        return triangles;
+    }
+}
+
+
+
+import { Scene } from "../world/scene";
+import { RenderPass } from "./renderPass";
+import { SceneBufferDescription } from "./buffers/geometry/sceneBufferDescription";
+import { prepareScene } from "./gfxScene";
+import { Pipelines } from "./pipeline";
+import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
+import { PipelineBindGroups } from "./pipelineBindGroups";
+
+export class Renderer {
+
+    canvas: HTMLCanvasElement;
+
+    // Device/Context objects
+    adapter!: GPUAdapter;
+    device!: GPUDevice;
+    context!: GPUCanvasContext;
+    format!: GPUTextureFormat;
+
+    //Assets
+    screenBuffers!: ScreenBufferDescription;
+    sceneBuffers!: SceneBufferDescription;
+
+    renderPipeline!: Pipelines;
+    pipelineBindGroups!: PipelineBindGroups;
+
+    frametime!: number
+    logged!: Boolean
+    currentRenderPass: RenderPass = RenderPass.Default;
+
+
+    constructor(canvas: HTMLCanvasElement){
+        this.canvas = canvas;
+    }
+
+   async Initialize() {
+
+        await this.setupDevice();
+        this.renderPipeline = new Pipelines(this.device, this.currentRenderPass);
+        this.createScreenBuffers();
+        await this.renderPipeline.initialize();
+        
+        this.frametime = 16;
+        this.logged = false;
+    }
+
+    async setupDevice() {
+        try {
+            //adapter: wrapper around (physical) GPU.
+            //Describes features and limits
+            const adapter = await navigator.gpu?.requestAdapter();
+            if (!adapter) {
+                throw new Error("Failed to get GPU adapter.");
+            }
+            this.adapter = adapter;
+            console.log("GPU adapter obtained:", this.adapter);
+
+            console.log("Requesting GPU device...");
+            //device: wrapper around GPU functionality
+            //Function calls are made through the device
+            const device = await this.adapter.requestDevice();
+            if (!device) {
+                throw new Error("Failed to get GPU device.");
+            }
+            this.device = device;
+
+            this.device.lost.then((info) => {
+                console.error("WebGPU device was lost:", info);
+                // Attempt to recreate the device
+                this.setupDevice();
+            });
+            
+            console.log("GPU device obtained:", this.device);
+            
+            console.log("Getting WebGPU context...");
+            //context: similar to vulkan instance (or OpenGL context)
+            const context = this.canvas.getContext("webgpu");
+            if (!context) {
+                throw new Error("Failed to get WebGPU context.");
+            }
+            this.context = context;
+            console.log("WebGPU context obtained:", this.context);
+            console.log("Configuring context...");
+
+            this.format = "bgra8unorm";
+            this.context.configure({
+                device: this.device,
+                format: this.format,
+                alphaMode: "opaque"
+            });
+            console.log("Context configured successfully.");
+
+            // Add cleanup on unload
+            const cleanup = () => {
+                console.log("Cleaning up WebGPU resources...");
+                if (this.device) {
+                    this.device.destroy();
+                }
+            };
+            window.addEventListener('unload', cleanup);
+            window.addEventListener('beforeunload', cleanup);
+
+        } catch (error) {
+            console.error("Error during WebGPU setup:", error);
+        }
+    }
+
+    async setupScene(scene: Scene) {
+        const voxelCount = scene.data.getVoxelCount();
+        const objectCount = scene.data.sceneObjectCount;
+        const nodesUsed = scene.data.sceneBVH.nodesUsed;
+
+        this.createSceneBuffers(voxelCount, objectCount, nodesUsed);
+        this.pipelineBindGroups = new PipelineBindGroups(this.device, 
+            this.currentRenderPass, 
+            this.screenBuffers, 
+            this.sceneBuffers);
+        await this.pipelineBindGroups.initialize();
+    }
+
+    createSceneBuffers(voxelCount: number, objectCount:number, nodesUsed: number) {
+        const objectBufferSize = 8 * 4 * voxelCount;
+        const objectInfoBufferSize = 8 * 2 * objectCount;
+        const bvhNodeBufferSize = 48 * nodesUsed;
+        this.sceneBuffers = new SceneBufferDescription(this.device, 
+                                                    objectBufferSize,
+                                                    objectInfoBufferSize, 
+                                                    bvhNodeBufferSize);
+    }
+
+    createScreenBuffers() {
+        this.screenBuffers = new ScreenBufferDescription(this.device, this.canvas);
+    }
+    
+    render(scene: Scene) {
+        if (!this.sceneBuffers) {
+            this.createSceneBuffers(scene.data.totalVoxelCount, 
+                                    scene.data.sceneObjectCount, 
+                                    scene.data.sceneBVH.nodesUsed);
+        }
+        const gfx_scene_instance = {
+            scene: scene,
+            sceneBuffers: this.sceneBuffers,
+            renderInstance: this
+        }
+        prepareScene(gfx_scene_instance);
+
+        switch (this.currentRenderPass) {
+            case RenderPass.Default:
+                this.renderDefault(gfx_scene_instance.scene.data.totalVoxelCount);
+        }
+    }
+
+    renderDefault = (voxelCount: number) => {
+        let start: number = performance.now();
+
+        const commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
+
+        const ray_trace_pass : GPUComputePassEncoder = commandEncoder.beginComputePass();
+        ray_trace_pass.setPipeline(this.renderPipeline.ray_tracing_pipeline);
+        ray_trace_pass.setBindGroup(0, this.pipelineBindGroups.ray_tracing_bind_group);
+
+        const workgroupSizeX = 8;
+        const workgroupSizeY = 8;
+        const numWorkgroupsX = Math.ceil(this.canvas.width / workgroupSizeX);
+        const numWorkgroupsY = Math.ceil(this.canvas.height / workgroupSizeY);
+
+        ray_trace_pass.dispatchWorkgroups(numWorkgroupsX, numWorkgroupsY);
+        ray_trace_pass.end();
+
+        const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
+        const renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: textureView,
+                clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
+                loadOp: "clear",
+                storeOp: "store"
+            }]
+        });
+
+        renderpass.setPipeline(this.renderPipeline.screen_pipeline);
+        renderpass.setBindGroup(0, this.pipelineBindGroups.screen_bind_group);
+        renderpass.draw(voxelCount, 1, 0, 0);
+        
+        renderpass.end();
+    
+        this.device.queue.submit([commandEncoder.finish()]);
+
+        this.device.queue.onSubmittedWorkDone().then(
+            () => {
+                let end: number = performance.now();
+                this.frametime = end - start;
+                let performanceLabel: HTMLElement =  <HTMLElement> document.getElementById("render-time");
+                if (performanceLabel) {
+                    performanceLabel.innerText = this.frametime.toString();
+                }
+            }
+        );
+    }   
+
+    renderUI(ctx: CanvasRenderingContext2D) {
+        if (!ctx) return;
+    
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    
+        // Header style
+        ctx.font = 'bold 16px Arial';
+        ctx.fillStyle = 'white';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'left';
+    
+        // Scene Parameters Header
+        ctx.fillText('Render Parameters', 10, 10);
+    
+        // Regular text style
+        ctx.font = '12px Arial';
+
+        // Frame time
+        ctx.fillText(`Frame Time: ${this.frametime.toFixed(2)} ms`, 10, 60);
+
+    }
+}
+
+
+
+
+
+
+fn trace_DEBUG_BVH(ray: Ray) -> RenderState {
+    var renderState: RenderState;
+    renderState.hit = false;
+    renderState.color = vec3<f32>(0.0);
+
+    // Debug colors
+    let ROOT_COLOR = vec3<f32>(0.3, 0.0, 0.0);      // Strong red for root
+    let INTERNAL_COLOR = vec3<f32>(0.0, 0.3, 0.0);  // Strong green for internal
+    let LEAF_COLOR = vec3<f32>(0.0, 0.0, 0.3);      // Strong blue for leaf
+
+    var debugColor = vec3<f32>(0.0);
+    var stack: array<u32, 64>;
+    var stackPtr: i32 = 0;
+    stack[stackPtr] = 0u;  // Start with root
+
+    // Add debug print
+    debugColor += ROOT_COLOR;
+
+    while (stackPtr >= 0) {
+        let nodeIndex = stack[stackPtr];
+        stackPtr -= 1;
+
+        let node = bvhNodeBuffer.nodes[nodeIndex];
+        
+        // Print current node state
+        if (nodeIndex == 0u) {
+            debugColor += ROOT_COLOR;
+        }
+
+        // Test intersection with node bounds
+        let intersectsBox = boolHitAABB(ray, node);
+        if (!intersectsBox) {
+            continue;
+        }
+
+        // Add hit intensity
+        debugColor += vec3<f32>(0.1);
+
+        // Process based on node type
+        if (node.objectIndex >= 0) {
+            // Leaf node
+            debugColor += LEAF_COLOR;
+            
+            let object = objectInfoBuffer[node.objectIndex];
+            
+            // Process voxels in this leaf
+            for (var i = 0u; i < object.voxelCount; i = i + 1u) {
+                let voxelIndex = object.voxelOffset + i;
+                let voxel = objectBuffer.voxels[voxelIndex];
+                let result = hitVoxel(ray, voxel);
+                
+                if (result.hit) {
+                    renderState = result;
+                    renderState.color = vec3<f32>(0.8, 0.2, 0.2);
+                    // Don't return yet - continue checking other voxels
+                }
+            }
+        } else {
+            // Internal node - push children
+            debugColor += INTERNAL_COLOR;
+            
+            // Always push both children if we have stack space
+            if (stackPtr < 62) {
+                // Push right child first (processed last)
+                stackPtr += 1;
+                stack[stackPtr] = node.leftChild + 1u;
+                
+                // Push left child
+                stackPtr += 1;
+                stack[stackPtr] = node.leftChild;
+            }
+        }
+    }
+
+    // If no hit, show traversal visualization
+    if (!renderState.hit) {
+        renderState.color = debugColor;
+    }
+
+    return renderState;
+}
+
+
+fn trace(ray: Ray) -> RenderState {
+    var renderState: RenderState;
+    renderState.hit = false;
+    renderState.color = vec3<f32>(0.0, 0.0, 0.0);
+
+    var stack: array<u32, 64>;
+    var stackPtr: i32 = 0;
+    stack[stackPtr] = 0u;  // Root node
+
+    // Debug visualization
+    var traversalDepth: f32 = 0.0;
+
+    while (stackPtr >= 0) {
+        let nodeIndex = stack[stackPtr];
+        stackPtr -= 1;
+
+        let node = bvhNodeBuffer.nodes[nodeIndex];
+        
+        // Increment depth for visualization
+        traversalDepth += 0.2;
+
+        if (!boolHitAABB(ray, node)) {
+            continue;
+        }
+
+        // Add visualization color
+        renderState.color += vec3<f32>(0.1 * traversalDepth, 0.02, 0.02);
+
+        if (node.objectIndex >= 0) {
+            // Leaf node processing
+            let object = objectInfoBuffer[node.objectIndex];
+            for (var i = 0u; i < object.voxelCount; i = i + 1u) {
+                let voxelIndex = object.voxelOffset + i;
+                let voxel = objectBuffer.voxels[voxelIndex];
+                let result = hitVoxel(ray, voxel);
+                
+                if (result.hit) {
+                    renderState = result;
+                    renderState.color = vec3<f32>(0.8, 0.2 * traversalDepth, 0.2);
+                    return renderState;  // Early exit on hit
+                }
+            }
+        } else {
+            // Push children (right first so left is processed first)
+            if (node.leftChild + 1u < arrayLength(&bvhNodeBuffer.nodes)) {
+                stackPtr += 1;
+                stack[stackPtr] = node.leftChild + 1u;  // Right child
+            }
+            if (node.leftChild < arrayLength(&bvhNodeBuffer.nodes)) {
+                stackPtr += 1;
+                stack[stackPtr] = node.leftChild;       // Left child
+            }
+        }
+    }
+
+    if (!renderState.hit) {
+        // Sky color or debug visualization
+        renderState.color = mix(
+            pbrSkyColor(ray.direction),  // Sky color
+            renderState.color,           // Debug color
+            0.5                          // Mix factor
+        );
+    }
+
+    return renderState;
+}
+
+
+
+
+
+import { gfx_scene_instance } from "./gfxSceneInstance";
+
+const VOXEL_SIZE = 32;        // Size of Voxel struct in bytes
+const OBJECT_INFO_SIZE = 16;  // Size of ObjectInfo struct in bytes
+const BVH_NODE_SIZE = 48;     // Size of Node struct in bytes
+const MAX_BOUNCES = 4;
+
+export function prepareScene(gfx_scene_instance: gfx_scene_instance) {
+    const { 
+        scene,
+        renderInstance: { device },
+        sceneBuffers 
+    } = gfx_scene_instance;
+
+
+    // --------------------------------------------------------------
+    // Prepare Scene Parameters Buffer
+    // --------------------------------------------------------------
+
+    const sceneParametersBuffer = new ArrayBuffer(64); // 4 vec4's = 64 bytes
+    const sceneParametersView = new DataView(sceneParametersBuffer);
+
+    // Write camera parameters into the buffer
+    let offset = 0;
+
+    // cameraPos (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.position[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.position[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.position[2], true);
+    sceneParametersView.setFloat32(offset + 12, 0.0, true); // Padding
+    offset += 16;
+
+    // cameraForwards (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.forwards[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.forwards[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.forwards[2], true);
+    sceneParametersView.setFloat32(offset + 12, 0.0, true); // Padding
+    offset += 16;
+
+    // cameraRight (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.right[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.right[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.right[2], true);
+    sceneParametersView.setFloat32(offset + 12, MAX_BOUNCES, true); // Using the w component for max bounces
+    offset += 16;
+
+    // cameraUp (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.up[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.up[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.up[2], true);
+    sceneParametersView.setFloat32(offset + 12, 0.0, true); // Padding
+
+    // Write to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.sceneParameters,
+        0,
+        sceneParametersBuffer
+    );
+
+    // --------------------------------------------------------------
+    // Prepare Voxel Data
+    // --------------------------------------------------------------
+
+    const totalVoxels = scene.data.totalVoxelCount;
+    const objectBufferSize = VOXEL_SIZE * totalVoxels;  // VOXEL_SIZE = 32 bytes
+    const voxelDataBuffer = new ArrayBuffer(objectBufferSize);
+    const voxelDataView = new DataView(voxelDataBuffer);
+
+    let voxelIndex = 0;
+    scene.data.voxelObjects.forEach((voxelObject, objectIdx) => {
+        voxelObject.voxelOffset = voxelIndex; // Store voxel offset in the object
+        voxelObject.voxels.forEach((voxel) => {
+            const baseOffset = voxelIndex * VOXEL_SIZE;
+
+            // position (vec3<f32> + padding)
+            voxelDataView.setFloat32(baseOffset + 0, voxel.position[0], true);
+            voxelDataView.setFloat32(baseOffset + 4, voxel.position[1], true);
+            voxelDataView.setFloat32(baseOffset + 8, voxel.position[2], true);
+            voxelDataView.setFloat32(baseOffset + 12, 0.0, true); // Padding
+
+            // colorIndex (u32)
+            voxelDataView.setUint32(baseOffset + 16, voxel.colorIndex, true);
+
+            // objectIndex (u32)
+            voxelDataView.setUint32(baseOffset + 20, objectIdx, true);
+
+            // objectVoxelCount (u32)
+            voxelDataView.setUint32(baseOffset + 24, voxelObject.voxels.length, true);
+
+            // Padding
+            voxelDataView.setUint32(baseOffset + 28, 0, true);
+
+            voxelIndex++;
+        });
+    });
+
+    // Write voxel data to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.objectBuffer,
+        0,
+        voxelDataBuffer
+    );
+
+    // --------------------------------------------------------------
+    // Prepare Object Info Data
+    // --------------------------------------------------------------
+
+    const totalObjects = scene.data.voxelObjects.length;
+    const objectInfoBufferSize = OBJECT_INFO_SIZE * totalObjects;
+    const objectInfoDataBuffer = new ArrayBuffer(objectInfoBufferSize);
+    const objectInfoDataView = new DataView(objectInfoDataBuffer);
+
+    scene.data.voxelObjects.forEach((voxelObject, objectIdx) => {
+        const baseOffset = objectIdx * OBJECT_INFO_SIZE;
+
+        // voxelOffset (u32)
+        objectInfoDataView.setUint32(baseOffset + 0, voxelObject.voxelOffset, true);
+
+        // voxelCount (u32)
+        objectInfoDataView.setUint32(baseOffset + 4, voxelObject.voxels.length, true);
+
+        // Padding
+        objectInfoDataView.setUint32(baseOffset + 8, 0, true);
+        objectInfoDataView.setUint32(baseOffset + 12, 0, true);
+    });
+
+    // Write object info data to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.objectInfoBuffer,
+        0,
+        objectInfoDataBuffer
+    );
+
+    
+    // --------------------------------------------------------------
+    // Prepare BVH Node Data
+    // --------------------------------------------------------------
+
+    const totalNodes = scene.data.sceneBVH.nodesUsed;
+    const bvhNodeBufferSize = BVH_NODE_SIZE * totalNodes;
+    const bvhDataBuffer = new ArrayBuffer(bvhNodeBufferSize);
+    const bvhDataView = new DataView(bvhDataBuffer);
+
+    for (let i = 0; i < totalNodes; i++) {
+        const node = scene.data.sceneBVH.nodes[i];
+        const baseOffset = i * BVH_NODE_SIZE;
+
+        // minCorner (vec3<f32> + padding)
+        bvhDataView.setFloat32(baseOffset + 0, node.minCorner[0], true);
+        bvhDataView.setFloat32(baseOffset + 4, node.minCorner[1], true);
+        bvhDataView.setFloat32(baseOffset + 8, node.minCorner[2], true);
+        bvhDataView.setFloat32(baseOffset + 12, 0.0, true); // Padding
+
+        // maxCorner (vec3<f32> + padding)
+        bvhDataView.setFloat32(baseOffset + 16, node.maxCorner[0], true);
+        bvhDataView.setFloat32(baseOffset + 20, node.maxCorner[1], true);
+        bvhDataView.setFloat32(baseOffset + 24, node.maxCorner[2], true);
+        bvhDataView.setFloat32(baseOffset + 28, 0.0, true); // Padding
+
+        // leftChild (u32)
+        bvhDataView.setUint32(baseOffset + 32, node.leftChild, true);
+
+        // primitiveCount (u32)
+        bvhDataView.setUint32(baseOffset + 36, node.primitiveCount, true);
+
+        // objectIndex (i32)
+        bvhDataView.setInt32(baseOffset + 40, node.objectIndex, true);
+
+        // Padding
+        bvhDataView.setUint32(baseOffset + 44, 0, true);
+    }
+
+    // Write BVH data to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.bvhNodeBuffer,
+        0,
+        bvhDataBuffer
+    );
+
+}
+
+
+
+
+import { vec3 } from "gl-matrix";
+import { Triangle } from "../geometry/triangle";
+
+export class Voxel 
+{
+    position: vec3;
+    colorIndex: number;
+    triangles: Triangle[];
+
+    constructor(x: number, y: number, z: number, colorIndex: number) {
+        this.position = vec3.create();
+        this.position[0] = x;
+        this.position[1] = y;
+        this.position[2] = z;
+        this.colorIndex = colorIndex;
+        this.triangles = [];
+    }
+}
+
+
+
+
+
+export class BindGroupLayouts {
+
+    device: GPUDevice;
+
+    ray_tracing_bind_group_layout!: GPUBindGroupLayout;
+    screen_bind_group_layout!: GPUBindGroupLayout;
+
+    constructor(device: GPUDevice) {
+        this.device = device;
+    }
+
+    createRayTracingBindGroupLayout = () => {
+        this.ray_tracing_bind_group_layout = this.device.createBindGroupLayout({
+            label: "Ray Tracing Bind Group Layout",
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE,
+                    storageTexture: {
+                        access: "write-only",
+                        format: "rgba8unorm",
+                        viewDimension: "2d"
+                    }
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: {
+                        type: "uniform",
+                        hasDynamicOffset: false,
+                        minBindingSize: 64,
+                    }
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: {
+                        type: "read-only-storage",
+                        hasDynamicOffset: false,
+                        minBindingSize: 0,
+                    }
+                },
+                {
+                    binding: 3,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: {
+                        type: "read-only-storage",
+                        hasDynamicOffset: false,
+                        minBindingSize: 0,
+                    }
+                },
+                {
+                    binding: 4,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: {
+                        type: "read-only-storage",
+                        hasDynamicOffset: false,
+                        minBindingSize: 0,
+                    }
+                },
+            ]
+        });
+        return this.ray_tracing_bind_group_layout;
+    }
+
+    createScreenBindGroupLayout = () => {
+        this.screen_bind_group_layout = this.device.createBindGroupLayout({
+            label: "Screen Bind Group Layout",
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {}
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {}
+                },
+            ]
+        });
+        return this.screen_bind_group_layout;
+    }
+}
+
+
+
+import { SceneBufferDescription } from "./buffers/geometry/sceneBufferDescription";
+import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
+import { BindGroupLayouts } from "./pipelineLayout";
+import { RenderPass } from "./renderPass";
+
+
+export class PipelineBindGroups {
+    device: GPUDevice;
+    currentRenderPass: RenderPass;
+    screenBuffers!: ScreenBufferDescription;
+    sceneBuffers!: SceneBufferDescription;
+    bindGroupLayouts!: BindGroupLayouts;
+
+    ray_tracing_bind_group!: GPUBindGroup;
+    screen_bind_group!: GPUBindGroup;
+    bvh_debug_bind_group!: GPUBindGroup;
+
+    constructor(device: GPUDevice, 
+                currentRenderPass: RenderPass, 
+                screenBuffers: ScreenBufferDescription, 
+                sceneBuffers: SceneBufferDescription) {
+        this.device = device;
+        this.currentRenderPass = currentRenderPass;
+        this.screenBuffers = screenBuffers;
+        this.sceneBuffers = sceneBuffers;
+        this.bindGroupLayouts = new BindGroupLayouts(this.device);
+    }
+
+    async initialize() {
+        await this.CreateScreenBindGroup();
+        await this.CreateRayTracingBindGroup();
+    }
+
+    CreateRayTracingBindGroup = async () => {
+        const bindGroupLayout = this.bindGroupLayouts.createRayTracingBindGroupLayout();
+        
+        this.ray_tracing_bind_group = this.device.createBindGroup({
+            label: "Ray Tracing Bind Group",
+            layout: bindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: this.screenBuffers.color_buffer_view
+                },
+                {
+                    binding: 1,
+                    resource: {
+                        buffer: this.sceneBuffers.sceneParameters,
+                    }
+                },
+                {
+                    binding: 2,
+                    resource: {
+                        buffer: this.sceneBuffers.objectBuffer,
+                    }
+                },
+                {
+                    binding: 3,
+                    resource: {
+                        buffer: this.sceneBuffers.objectInfoBuffer,
+                    }
+                },
+                {
+                    binding: 4,
+                    resource: {
+                        buffer: this.sceneBuffers.bvhNodeBuffer,
+                    }
+                },
+            ]
+        });
+    }
+
+    CreateScreenBindGroup = async () => {
+        const bindGroupLayout = this.bindGroupLayouts.createScreenBindGroupLayout();
+
+        this.screen_bind_group = this.device.createBindGroup({
+            label: "Screen Bind Group",
+            layout: bindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource:  this.screenBuffers.sampler
+                },
+                {
+                    binding: 1,
+                    resource: this.screenBuffers.color_buffer_view
+                }
+            ]
+        });
+    }
+}
+
+
+
+import { gfx_scene_instance } from "./gfxSceneInstance";
+
+const VOXEL_SIZE = 32;        // Size of Voxel struct in bytes
+const OBJECT_INFO_SIZE = 16;  // Size of ObjectInfo struct in bytes
+const BVH_NODE_SIZE = 48;     // Size of Node struct in bytes
+const MAX_BOUNCES = 4;
+
+export function prepareScene(gfx_scene_instance: gfx_scene_instance) {
+    const { 
+        scene,
+        renderInstance: { device },
+        sceneBuffers 
+    } = gfx_scene_instance;
+
+
+    // --------------------------------------------------------------
+    // Prepare Scene Parameters Buffer
+    // --------------------------------------------------------------
+
+    const sceneParametersBuffer = new ArrayBuffer(64); // 4 vec4's = 64 bytes
+    const sceneParametersView = new DataView(sceneParametersBuffer);
+
+    // Write camera parameters into the buffer
+    let offset = 0;
+
+    // cameraPos (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.position[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.position[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.position[2], true);
+    sceneParametersView.setFloat32(offset + 12, 0.0, true); // Padding
+    offset += 16;
+
+    // cameraForwards (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.forwards[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.forwards[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.forwards[2], true);
+    sceneParametersView.setFloat32(offset + 12, 0.0, true); // Padding
+    offset += 16;
+
+    // cameraRight (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.right[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.right[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.right[2], true);
+    sceneParametersView.setFloat32(offset + 12, MAX_BOUNCES, true); // Using the w component for max bounces
+    offset += 16;
+
+    // cameraUp (vec3<f32> + padding)
+    sceneParametersView.setFloat32(offset, scene.data.camera.up[0], true);
+    sceneParametersView.setFloat32(offset + 4, scene.data.camera.up[1], true);
+    sceneParametersView.setFloat32(offset + 8, scene.data.camera.up[2], true);
+    sceneParametersView.setFloat32(offset + 12, 0.0, true); // Padding
+
+    // Write to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.sceneParameters,
+        0,
+        sceneParametersBuffer
+    );
+
+    // --------------------------------------------------------------
+    // Prepare Voxel Data
+    // --------------------------------------------------------------
+
+    const totalVoxels = scene.data.totalVoxelCount;
+    const objectBufferSize = VOXEL_SIZE * totalVoxels;  // VOXEL_SIZE = 32 bytes
+    const voxelDataBuffer = new ArrayBuffer(objectBufferSize);
+    const voxelDataView = new DataView(voxelDataBuffer);
+
+    let voxelIndex = 0;
+    scene.data.voxelObjects.forEach((voxelObject, objectIdx) => {
+        voxelObject.voxelOffset = voxelIndex; // Store voxel offset in the object
+        voxelObject.voxels.forEach((voxel) => {
+            const baseOffset = voxelIndex * VOXEL_SIZE;
+
+            // position (vec3<f32> + padding)
+            voxelDataView.setFloat32(baseOffset + 0, voxel.position[0], true);
+            voxelDataView.setFloat32(baseOffset + 4, voxel.position[1], true);
+            voxelDataView.setFloat32(baseOffset + 8, voxel.position[2], true);
+            voxelDataView.setFloat32(baseOffset + 12, 0.0, true); // Padding
+
+            // colorIndex (u32)
+            voxelDataView.setUint32(baseOffset + 16, voxel.colorIndex, true);
+
+            // objectIndex (u32)
+            voxelDataView.setUint32(baseOffset + 20, objectIdx, true);
+
+            // objectVoxelCount (u32)
+            voxelDataView.setUint32(baseOffset + 24, voxelObject.voxels.length, true);
+
+            // Padding
+            voxelDataView.setUint32(baseOffset + 28, 0, true);
+
+            voxelIndex++;
+        });
+    });
+
+    // Write voxel data to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.objectBuffer,
+        0,
+        voxelDataBuffer
+    );
+
+    // --------------------------------------------------------------
+    // Prepare Object Info Data
+    // --------------------------------------------------------------
+
+    const totalObjects = scene.data.voxelObjects.length;
+    const objectInfoBufferSize = OBJECT_INFO_SIZE * totalObjects;
+    const objectInfoDataBuffer = new ArrayBuffer(objectInfoBufferSize);
+    const objectInfoDataView = new DataView(objectInfoDataBuffer);
+
+    scene.data.voxelObjects.forEach((voxelObject, objectIdx) => {
+        const baseOffset = objectIdx * OBJECT_INFO_SIZE;
+
+        // voxelOffset (u32)
+        objectInfoDataView.setUint32(baseOffset + 0, voxelObject.voxelOffset, true);
+
+        // voxelCount (u32)
+        objectInfoDataView.setUint32(baseOffset + 4, voxelObject.voxels.length, true);
+
+        // Padding
+        objectInfoDataView.setUint32(baseOffset + 8, 0, true);
+        objectInfoDataView.setUint32(baseOffset + 12, 0, true);
+    });
+
+    // Write object info data to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.objectInfoBuffer,
+        0,
+        objectInfoDataBuffer
+    );
+
+    
+    // --------------------------------------------------------------
+    // Prepare BVH Node Data
+    // --------------------------------------------------------------
+
+    const totalNodes = scene.data.sceneBVH.nodesUsed;
+    const bvhNodeBufferSize = BVH_NODE_SIZE * totalNodes;
+    const bvhDataBuffer = new ArrayBuffer(bvhNodeBufferSize);
+    const bvhDataView = new DataView(bvhDataBuffer);
+
+    for (let i = 0; i < totalNodes; i++) {
+        const node = scene.data.sceneBVH.nodes[i];
+        const baseOffset = i * BVH_NODE_SIZE;
+
+        // minCorner (vec3<f32> + padding)
+        bvhDataView.setFloat32(baseOffset + 0, node.minCorner[0], true);
+        bvhDataView.setFloat32(baseOffset + 4, node.minCorner[1], true);
+        bvhDataView.setFloat32(baseOffset + 8, node.minCorner[2], true);
+        bvhDataView.setFloat32(baseOffset + 12, 0.0, true); // Padding
+
+        // maxCorner (vec3<f32> + padding)
+        bvhDataView.setFloat32(baseOffset + 16, node.maxCorner[0], true);
+        bvhDataView.setFloat32(baseOffset + 20, node.maxCorner[1], true);
+        bvhDataView.setFloat32(baseOffset + 24, node.maxCorner[2], true);
+        bvhDataView.setFloat32(baseOffset + 28, 0.0, true); // Padding
+
+        // leftChild (u32)
+        bvhDataView.setUint32(baseOffset + 32, node.leftChild, true);
+
+        // primitiveCount (u32)
+        bvhDataView.setUint32(baseOffset + 36, node.primitiveCount, true);
+
+        // objectIndex (i32)
+        bvhDataView.setInt32(baseOffset + 40, node.objectIndex, true);
+
+        // Padding
+        bvhDataView.setUint32(baseOffset + 44, 0, true);
+    }
+
+    // Write BVH data to GPU buffer
+    device.queue.writeBuffer(
+        sceneBuffers.bvhNodeBuffer,
+        0,
+        bvhDataBuffer
+    );
+
+}
+
+
+
+
+export class SceneBufferDescription {
+    objectBuffer: GPUBuffer;
+    objectInfoBuffer: GPUBuffer;
+    bvhNodeBuffer: GPUBuffer;
+    sceneParameters: GPUBuffer;
+
+    constructor(device: GPUDevice, 
+                objectBufferSize: number, 
+                objectInfoBufferSize: number, 
+                bvhNodeBufferSize: number) {
+
+        // Object Buffer to store compacted scene object data
+        this.objectBuffer = device.createBuffer({
+            label: "Object Buffer",
+            size: objectBufferSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+
+        // Object Info Buffer to store compacted scene object info
+        this.objectInfoBuffer = device.createBuffer({
+            label: "Object Info Buffer",
+            size: objectInfoBufferSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+
+        // BVH Node Buffer to store compacted BVH node data
+        this.bvhNodeBuffer = device.createBuffer({
+            label: "BVH Node Buffer",
+            size: bvhNodeBufferSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+
+        // Scene Parameters Buffer (e.g., camera parameters)
+        this.sceneParameters = device.createBuffer({
+            label: "Scene Parameters Buffer",
+            size: 64, // 4 vec4's = 64 bytes
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+    }
+}
+
+
+
+
+import { RenderPass } from "./renderPass";
+
+import raytracer_kernel from "../gpu/rendering/raytracer_kernel.wgsl"
+import screen_shader from "../gpu/image/screen_shader.wgsl"
+
+import { BindGroupLayouts } from "./pipelineLayout";
+
+export class Pipelines {
+
+    device: GPUDevice;
+    currentRenderPass: RenderPass;
+    bindGroupLayouts!: BindGroupLayouts;
+        
+    ray_tracing_pipeline!: GPUComputePipeline;
+    screen_pipeline!: GPURenderPipeline;
+
+    constructor(device: GPUDevice, currentRenderPass: RenderPass) {
+        this.device = device;
+        this.currentRenderPass = currentRenderPass;
+        this.bindGroupLayouts = new BindGroupLayouts(this.device);
+    }
+
+    async initialize() {
+        await this.createScreenPipeline();
+        await this.createRayTracingPipelines();
+        
+    }
+
+    createRayTracingPipelines = async () => {
+        const bindGroupLayout = this.bindGroupLayouts.createRayTracingBindGroupLayout();
+        const ray_tracing_pipeline_layout = this.device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout]
+        });
+
+        this.ray_tracing_pipeline = 
+            this.device.createComputePipeline(
+                {
+                    label: "Ray Tracing Pipeline",
+                    layout: ray_tracing_pipeline_layout,
+            
+                    compute: {
+                        module: this.device.createShaderModule({code: raytracer_kernel,}),
+                        entryPoint: 'main',
+                    },
+                }
+            );
+        }
+
+    createScreenPipeline = async () => {
+        const bindGroupLayout = this.bindGroupLayouts.createScreenBindGroupLayout();
+        const screen_pipeline_layout = this.device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout]
+        });
+
+        this.screen_pipeline = this.device.createRenderPipeline({
+            label: "Screen Pipeline",
+            layout: screen_pipeline_layout,
+            
+            vertex: {
+                module: this.device.createShaderModule({
+                code: screen_shader,
+            }),
+            entryPoint: 'vert_main',
+            },
+
+            fragment: {
+                module: this.device.createShaderModule({
+                code: screen_shader,
+            }),
+            entryPoint: 'frag_main',
+            targets: [
+                {
+                    format: "bgra8unorm"
+                }
+            ]
+            },
+
+            primitive: {
+                topology: "triangle-list"
+            }
+        });
+    }
+}
+
+
+

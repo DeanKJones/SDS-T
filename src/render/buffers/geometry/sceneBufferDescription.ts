@@ -1,5 +1,5 @@
-export class SceneBufferDescription {
 
+export class SceneBufferDescription {
     objectBuffer: GPUBuffer;
     objectInfoBuffer: GPUBuffer;
     bvhNodeBuffer: GPUBuffer;
@@ -7,7 +7,7 @@ export class SceneBufferDescription {
 
     constructor(device: GPUDevice, 
                 objectBufferSize: number, 
-                objectInfoBufferSize:number, 
+                objectInfoBufferSize: number, 
                 bvhNodeBufferSize: number) {
 
         // Object Buffer to store compacted scene object data
@@ -17,7 +17,7 @@ export class SceneBufferDescription {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
-        // Object Info Buffer to store compacted scene object
+        // Object Info Buffer to store compacted scene object info
         this.objectInfoBuffer = device.createBuffer({
             label: "Object Info Buffer",
             size: objectInfoBufferSize,
@@ -34,7 +34,7 @@ export class SceneBufferDescription {
         // Scene Parameters Buffer (e.g., camera parameters)
         this.sceneParameters = device.createBuffer({
             label: "Scene Parameters Buffer",
-            size: 64, // Adjust size as needed
+            size: 64, // 4 vec4's = 64 bytes
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
     }

@@ -29,6 +29,8 @@ export class BindGroupLayouts {
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: {
                         type: "uniform",
+                        hasDynamicOffset: false,
+                        minBindingSize: 64,
                     }
                 },
                 {
@@ -36,7 +38,8 @@ export class BindGroupLayouts {
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: {
                         type: "read-only-storage",
-                        hasDynamicOffset: false
+                        hasDynamicOffset: false,
+                        minBindingSize: 0,
                     }
                 },
                 {
@@ -44,7 +47,8 @@ export class BindGroupLayouts {
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: {
                         type: "read-only-storage",
-                        hasDynamicOffset: false
+                        hasDynamicOffset: false,
+                        minBindingSize: 0,
                     }
                 },
                 {
@@ -52,7 +56,8 @@ export class BindGroupLayouts {
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: {
                         type: "read-only-storage",
-                        hasDynamicOffset: false
+                        hasDynamicOffset: false,
+                        minBindingSize: 0,
                     }
                 },
             ]

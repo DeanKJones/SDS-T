@@ -1,44 +1,30 @@
-// voxel_intersection.wgsl
+#include "./aabb_intersection.wgsl"
 
 fn hitVoxel(ray: Ray, voxel: Voxel) -> RenderState {
-    let voxel_min = voxel.position;
-    let voxel_max = voxel.position + vec3<f32>(1.0, 1.0, 1.0); // Assuming unit-sized voxels
-
-    let t1 = (voxel_min - ray.origin) / ray.direction;
-    let t2 = (voxel_max - ray.origin) / ray.direction;
-
-    let tmin = min(t1, t2);
-    let tmax = max(t1, t2);
-
-    let tNear = max(max(tmin.x, tmin.y), tmin.z);
-    let tFar = min(min(tmax.x, tmax.y), tmax.z);
-
     var renderState: RenderState;
     renderState.hit = false;
 
-    if (tNear < tFar && tFar > 0.0) {
+    // Calculate voxel bounds (unit size)
+    let voxel_min = voxel.position;
+    let voxel_max = voxel.position + vec3<f32>(1.0, 1.0, 1.0);
+
+    // Use the same intersection test as BVH
+    let hitInfo = rayBoxIntersect(ray, voxel_min, voxel_max);
+
+    if (hitInfo.hit) {
         renderState.hit = true;
-        renderState.t = tNear;
-        renderState.position = ray.origin + ray.direction * tNear;
-
-        // Calculate normal based on which face was hit
-        let epsilon = 0.0001;
-        if (abs(renderState.position.x - voxel_min.x) < epsilon) {
-            renderState.normal = vec3<f32>(-1.0, 0.0, 0.0);
-        } else if (abs(renderState.position.x - voxel_max.x) < epsilon) {
-            renderState.normal = vec3<f32>(1.0, 0.0, 0.0);
-        } else if (abs(renderState.position.y - voxel_min.y) < epsilon) {
-            renderState.normal = vec3<f32>(0.0, -1.0, 0.0);
-        } else if (abs(renderState.position.y - voxel_max.y) < epsilon) {
-            renderState.normal = vec3<f32>(0.0, 1.0, 0.0);
-        } else if (abs(renderState.position.z - voxel_min.z) < epsilon) {
-            renderState.normal = vec3<f32>(0.0, 0.0, -1.0);
-        } else {
-            renderState.normal = vec3<f32>(0.0, 0.0, 1.0);
-        }
-
+        renderState.t = hitInfo.tNear;
+        renderState.position = ray.origin + ray.direction * hitInfo.tNear;
+        renderState.normal = hitInfo.normal;
         renderState.colorIndex = voxel.colorIndex;
         renderState.objectIndex = voxel.objectIndex;
+    } else {
+        renderState.t = 0.0;
+        renderState.color = vec3<f32>(0.0, 0.0, 0.0);
+        renderState.position = vec3<f32>(0.0, 0.0, 0.0);
+        renderState.normal = vec3<f32>(0.0, 0.0, 0.0);
+        renderState.colorIndex = 0u;
+        renderState.objectIndex = 0u;
     }
 
     return renderState;

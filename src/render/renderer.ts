@@ -2,7 +2,7 @@
 import { Scene } from "../world/scene";
 import { RenderPass } from "./renderPass";
 import { SceneBufferDescription } from "./buffers/geometry/sceneBufferDescription";
-import { prepareScene } from "./gfx_scene";
+import { prepareScene } from "./gfxScene";
 import { Pipelines } from "./pipeline";
 import { ScreenBufferDescription } from "./buffers/screenBufferDescription";
 import { PipelineBindGroups } from "./pipelineBindGroups";

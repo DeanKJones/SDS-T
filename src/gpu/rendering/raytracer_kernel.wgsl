@@ -1,4 +1,5 @@
 #include "./pbr_sky.wgsl"
+#include "./trace_scene.wgsl"
 #include "../math/random.wgsl"
 
 #include "./intersection/sphere_intersection.wgsl"
@@ -25,13 +26,13 @@ struct Triangle {
     isLambert: u32,
 }
 
-struct Voxel {      // 16 bytes
-    position: vec3<f32>,
-    _padding0: f32,
-    colorIndex: u32,
-    objectIndex: u32,
-    objectVoxelCount: u32,
-    _padding1: u32,
+struct Voxel {
+    position: vec3<f32>,     // 12 bytes + 4 bytes padding = 16 bytes
+    colorIndex: u32,         // 4 bytes
+    objectIndex: u32,        // 4 bytes
+    objectVoxelCount: u32,   // 4 bytes
+    padding: u32,            // 4 bytes (to make total size 32 bytes)
+    triangles: array<Triangle>, // New field for triangles
 }
 
 struct ObjectData {
@@ -39,19 +40,19 @@ struct ObjectData {
 }
 
 struct ObjectInfo {
-    voxelOffset: u32,
-    voxelCount: u32,
+    voxelOffset: u32,   // 4 bytes
+    voxelCount: u32,    // 4 bytes
+    padding1: u32,      // 4 bytes
+    padding2: u32,      // 4 bytes
 }
 
 struct Node {
-    minCorner: vec3<f32>,
-    _padding0: f32,
-    leftChild: f32,
-    maxCorner: vec3<f32>,
-    primitiveCount: f32,
-    _padding1: u32,
-    objectIndex: f32,
-    _padding2: f32,
+    minCorner: vec3<f32>,   // 12 bytes + 4 bytes padding = 16 bytes
+    maxCorner: vec3<f32>,   // 12 bytes + 4 bytes padding = 16 bytes
+    leftChild: u32,         // 4 bytes
+    primitiveCount: u32,    // 4 bytes
+    objectIndex: i32,       // 4 bytes
+    padding: u32,           // 4 bytes
 }
 
 struct BVH {
@@ -89,6 +90,7 @@ struct seed_t {
     v: vec3<i32>,
 }
 
+
 @group(0) @binding(0) var colorBuffer: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(1) var<uniform> sceneParameterBuffer: SceneParameters;
 @group(0) @binding(2) var<storage, read> objectBuffer: ObjectData;
@@ -96,6 +98,7 @@ struct seed_t {
 @group(0) @binding(4) var<storage, read> bvhNodeBuffer: BVH;
 
 var<private> seed: u32 = 42069u;
+
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
@@ -126,6 +129,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     textureStore(colorBuffer, screen_pos, vec4<f32>(pixel_color, 1.0));
 }
 
+
 fn rayColor(ray: Ray) -> vec3<f32> {
 
     var color: vec3<f32> = vec3(1.0, 1.0, 1.0);
@@ -138,7 +142,7 @@ fn rayColor(ray: Ray) -> vec3<f32> {
     let bounces: u32 = u32(sceneParameterBuffer.maxBounces);
     for(var bounce: u32 = 0; bounce < bounces; bounce++) {
 
-        result = trace(temp_ray);
+        result = trace_DEBUG_BVH(temp_ray); // debugging trace function used to visualize BVH traversal
 
         //unpack color
         color = color * result.color;
@@ -159,122 +163,4 @@ fn rayColor(ray: Ray) -> vec3<f32> {
     }
 
     return color;
-}
-
-fn trace(ray: Ray) -> RenderState {
-
-    //Set up the Render State
-    var renderState: RenderState;
-    renderState.hit = false;
-    var nearestHit: f32 = 9999;
-
-    //Set up for BVH Traversal
-    var node: Node = bvhNodeBuffer.nodes[0];
-    var stack: array<Node, 15>;
-    var stackLocation: u32 = 0;
-
-    while (true) {
-
-        var primitiveCount: u32 = u32(node.primitiveCount);
-        var contents: u32 = u32(node.leftChild);
-
-        if (primitiveCount == 0) {
-            
-            // Visualize BVH intersection 
-            renderState.color = vec3<f32>(0.3, 0.0, 0.0);
-
-            var child1: Node = bvhNodeBuffer.nodes[contents];
-            var child2: Node = bvhNodeBuffer.nodes[contents + 1];
-
-            var distance1: f32 = hit_aabb(ray, child1);
-            var distance2: f32 = hit_aabb(ray, child2);
-
-            if (distance1 > distance2) {
-                var tempDist: f32 = distance1;
-                distance1 = distance2;
-                distance2 = tempDist;
-
-                var tempChild: Node = child1;
-                child1 = child2;
-                child2 = tempChild;
-            }
-            if (distance1 > nearestHit) {
-                if (stackLocation == 0) {
-                    break;
-                }
-                else {
-                    stackLocation -= 1;
-                    node = stack[stackLocation];
-                }
-            }
-            else {
-                node = child1;
-                if (distance2 < nearestHit) {
-                    stack[stackLocation] = child2;
-                    stackLocation += 1;
-                }
-            }
-        }
-        else {
-            let objectIndex = u32(node.objectIndex);
-            let objectInfo = objectInfoBuffer[objectIndex];
-
-            for (var i: u32 = 0u; i < objectInfo.voxelCount; i = i + 1u) {
-                let voxelIndex = objectInfo.voxelOffset + i;
-                let voxel = objectBuffer.voxels[voxelIndex];
-                let newRenderState = hitVoxel(ray, voxel);
-
-                if (newRenderState.hit && newRenderState.t < nearestHit) {
-                    nearestHit = newRenderState.t;
-                    renderState = newRenderState;
-                }
-            }
-
-            if (stackLocation == 0) {
-                break;
-            }
-            else {
-                stackLocation -= 1;
-                node = stack[stackLocation];
-            }
-        }
-    }
-
-    if (!renderState.hit) {
-        //sky color
-        let skyColor: vec3<f32> = pbrSkyColor(ray.direction);
-        renderState.color = skyColor;
-    }
-
-    return renderState;
-}
-
-fn hit_aabb(ray: Ray, node: Node) -> f32 {
-    var inverseDir: vec3<f32> = vec3(1.0) / ray.direction;
-    var t1: vec3<f32> = (node.minCorner - ray.origin) * inverseDir;
-    var t2: vec3<f32> = (node.maxCorner - ray.origin) * inverseDir;
-    var tMin: vec3<f32> = min(t1, t2);
-    var tMax: vec3<f32> = max(t1, t2);
-
-    var t_min: f32 = max(max(tMin.x, tMin.y), tMin.z);
-    var t_max: f32 = min(min(tMax.x, tMax.y), tMax.z);
-
-    if (t_min > t_max || t_max < 0) {
-        return 99999.0;
-    }
-    else {
-        return t_min;
-    }
-}
-
-fn random_cos_weighted_hemisphere_direction(n: vec3<f32>) -> vec3<f32> {
-    let  r = vec2<f32>(random(), random());
-    let uu = normalize(cross(n, select(vec3<f32>(0,1,0), vec3<f32>(1,0,0), abs(n.y) > .5)));
-    let vv = cross(uu, n);
-    let ra = sqrt(r.y);
-    let rx = ra * cos(TAU * r.x);
-    let ry = ra * sin(TAU * r.x);
-    let rz = sqrt(1. - r.y);
-    let rr = vec3<f32>(rx * uu + ry * vv + rz * n);
-    return normalize(rr);
 }

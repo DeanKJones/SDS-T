@@ -23,8 +23,9 @@ export class App
         this.renderer = new Renderer(this.canvases.get("viewportMain")!);
         await this.renderer.Initialize();
         
-        this.scene = await Scene.create();
-        await this.scene.initialize();
+        this.scene = await Scene.create();      // Empty Scene
+        await this.scene.initialize();          // Initialize Scene
+        // Initialize GFX Scene
         await this.renderer.setupScene(this.scene);
     
         this.run();

@@ -5,8 +5,6 @@ import { BVH } from "../bvh/bvh";
 export class SceneData {
 
     voxelObjects: VoxelObject[];
-    voxelIndices: number[];
-
     totalVoxelCount: number;
     sceneObjectCount: number;
     sceneBVH: BVH;
@@ -15,7 +13,6 @@ export class SceneData {
 
     constructor() {
         this.voxelObjects = [];
-        this.voxelIndices = [];
 
         this.totalVoxelCount = 0;
         this.sceneObjectCount = 0;
@@ -30,9 +27,10 @@ export class SceneData {
 
     addVoxelObject(voxelObject: VoxelObject) {
         this.voxelObjects.push(voxelObject);
-        this.sceneObjectCount = this.voxelObjects.length;
-
-        // Here you would also update your BVH or other acceleration structures
+        this.sceneObjectCount += this.voxelObjects.length;
+        // Ensure triangles are generated
+        voxelObject.generateTriangles();
+        // Can update during runtime bvh
     }
 
     updateSceneDataTransforms() {

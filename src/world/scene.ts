@@ -20,22 +20,28 @@ export class Scene {
         //const voxelObject1 = await VoxImporter.importVox("assets/models/deer.vox");
         //this.data.addVoxelObject(voxelObject1);
 
-        const defaultVoxel = createDefaultVoxel();
-        this.data.addVoxelObject(defaultVoxel);
+        const defaultVoxel_1 = createDefaultVoxel();
+        defaultVoxel_1.setPosition(0, 0, 0);
+        defaultVoxel_1.translate(0, 5, 0);
+        defaultVoxel_1.generateTriangles(); // Generate triangles
+        this.data.addVoxelObject(defaultVoxel_1);
 
-        const voxelObject2 = createDefaultVoxel();
-        voxelObject2.updateTransform([1, 0, 0, 0, 
-                                      0, 1, 0, 0, 
-                                      0, 0, 1, 0, 
-                                      3, 1, 0, 1]);
-        this.data.addVoxelObject(voxelObject2);
+        const defaultVoxel_2 = createDefaultVoxel();
+        defaultVoxel_2.setPosition(0, 0, 0);
+        defaultVoxel_2.translate(3, 1, 3);
+        defaultVoxel_2.generateTriangles(); // Generate triangles
+        this.data.addVoxelObject(defaultVoxel_2);
 
-        this.data.camera = new Camera([0, 3.0, 10.0], 180, 0);
+        const defaultVoxel3 = createDefaultVoxel();
+        defaultVoxel3.setPosition(0, 0, 0);
+        defaultVoxel3.translate(-3, -1, -3);
+        defaultVoxel3.generateTriangles(); // Generate triangles
+        this.data.addVoxelObject(defaultVoxel3);
 
-        this.data.buildSceneBVH();
-        console.log("BVH build completed.");
+        this.data.camera = new Camera([1.5, 1.5, 5.0], 180, 0);
 
         this.update();
+        this.data.buildSceneBVH();
     }
 
     update() {
